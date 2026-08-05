@@ -15,10 +15,10 @@ import (
 
 	"github.com/rohanthewiz/go-styl/stylserve"
 
-	"pbstudy/assets"
-	"pbstudy/cfg"
-	"pbstudy/store"
-	"pbstudy/web/ui"
+	"github.com/rohanthewiz/pbstudy/assets"
+	"github.com/rohanthewiz/pbstudy/cfg"
+	"github.com/rohanthewiz/pbstudy/store"
+	"github.com/rohanthewiz/pbstudy/web/ui"
 )
 
 // Server holds what every handler needs. Handlers are methods on it rather

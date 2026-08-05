@@ -6,8 +6,8 @@ import (
 
 	"github.com/rohanthewiz/rweb"
 
-	"pbstudy/bible"
-	"pbstudy/web/ui"
+	"github.com/rohanthewiz/pbstudy/bible"
+	"github.com/rohanthewiz/pbstudy/web/ui"
 )
 
 // handleSearch serves the search page.

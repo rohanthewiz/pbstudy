@@ -11,8 +11,8 @@ import (
 
 	"github.com/rohanthewiz/element"
 
-	"pbstudy/bible"
-	"pbstudy/blb"
+	"github.com/rohanthewiz/pbstudy/bible"
+	"github.com/rohanthewiz/pbstudy/blb"
 )
 
 // Nav identifiers, used to highlight the active tab.

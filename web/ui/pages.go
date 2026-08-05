@@ -3,7 +3,7 @@ package ui
 import (
 	"github.com/rohanthewiz/element"
 
-	"pbstudy/bible"
+	"github.com/rohanthewiz/pbstudy/bible"
 )
 
 // Dashboard is the landing page: a whole-canon index plus the state of the

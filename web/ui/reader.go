@@ -3,8 +3,8 @@ package ui
 import (
 	"github.com/rohanthewiz/element"
 
-	"pbstudy/bible"
-	"pbstudy/blb"
+	"github.com/rohanthewiz/pbstudy/bible"
+	"github.com/rohanthewiz/pbstudy/blb"
 )
 
 // ChapterLink is a prev/next target, precomputed by the handler so the view

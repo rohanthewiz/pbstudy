@@ -1,4 +1,4 @@
-module pbstudy
+module github.com/rohanthewiz/pbstudy
 
 go 1.26.1
 

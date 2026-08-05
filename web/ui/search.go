@@ -5,8 +5,8 @@ import (
 
 	"github.com/rohanthewiz/element"
 
-	"pbstudy/bible"
-	"pbstudy/blb"
+	"github.com/rohanthewiz/pbstudy/bible"
+	"github.com/rohanthewiz/pbstudy/blb"
 )
 
 // Search renders scripture text-search results.

@@ -23,7 +23,7 @@ import (
 	"github.com/rohanthewiz/bytdb/stdlib"
 	"github.com/rohanthewiz/serr"
 
-	"pbstudy/cfg"
+	"github.com/rohanthewiz/pbstudy/cfg"
 )
 
 // Store holds the open database handles for the process lifetime.

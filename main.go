@@ -24,10 +24,10 @@ import (
 	// effect only; store/ opens databases through database/sql.
 	_ "github.com/rohanthewiz/bytdb/stdlib"
 
-	"pbstudy/bible"
-	"pbstudy/cfg"
-	"pbstudy/store"
-	"pbstudy/web"
+	"github.com/rohanthewiz/pbstudy/bible"
+	"github.com/rohanthewiz/pbstudy/cfg"
+	"github.com/rohanthewiz/pbstudy/store"
+	"github.com/rohanthewiz/pbstudy/web"
 )
 
 func main() {

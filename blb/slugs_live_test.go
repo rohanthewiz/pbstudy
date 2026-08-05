@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"pbstudy/bible"
-	"pbstudy/blb"
+	"github.com/rohanthewiz/pbstudy/bible"
+	"github.com/rohanthewiz/pbstudy/blb"
 )
 
 // TestBLBSlugsResolve checks that every book's Blue Letter Bible slug actually

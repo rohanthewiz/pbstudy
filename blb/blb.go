@@ -19,7 +19,7 @@ import (
 	"strconv"
 	"strings"
 
-	"pbstudy/bible"
+	"github.com/rohanthewiz/pbstudy/bible"
 )
 
 // BaseURL is the site root. All link builders hang off this.
