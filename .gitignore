@@ -1,0 +1,17 @@
+# Build output
+/pbstudy
+*.exe
+
+# Databases and their locks are per-machine state, never source.
+# The live .bytdb files must never be committed or sync-copied — bytdb does no
+# file locking, so a copy taken mid-append has a torn tail. Use
+# `pbstudy backup` for a consistent snapshot.
+*.bytdb
+pbstudy.lock
+
+# Local data / sync directories, if anyone points them inside the repo
+/data/
+/sync/
+
+# macOS
+.DS_Store

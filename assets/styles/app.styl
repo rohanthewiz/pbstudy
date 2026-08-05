@@ -1,0 +1,291 @@
+// pbstudy stylesheet — Stylus, compiled by go-styl at request time.
+//
+// Written in the brace/semicolon dialect (go-styl accepts both) because the
+// nesting depth here is shallow and braces survive copy/paste better.
+//
+// Design intent: a reading surface first. Scripture gets a serif face, a
+// generous measure, and the highest contrast on the page; chrome recedes.
+// Dark by default — long study sessions happen at night.
+
+// ---- palette -------------------------------------------------------------
+bg          = #14161a;
+bgRaised    = #1b1e24;
+bgSunken    = #101216;
+border      = #2a2f38;
+text        = #d8dce3;
+textDim     = #8b94a3;
+textBright  = #f2f5f9;
+accent      = #7fb3d5;   // links, verse numbers
+accentWarm  = #d9a441;   // notes / annotations
+danger      = #d97070;
+
+// ---- type ----------------------------------------------------------------
+uiFont      = -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+readFont    = "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+monoFont    = ui-monospace, SFMono-Regular, Menlo, monospace;
+
+radius      = 6px;
+maxWidth    = 46rem;   // ~72 characters at the reading size: a comfortable measure
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: bg;
+  color: text;
+  font-family: uiFont;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+a { color: accent; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+// ---- header / nav --------------------------------------------------------
+.site-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 1rem;
+  background: bgRaised;
+  border-bottom: 1px solid border;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  font-weight: 600;
+  font-size: 1.05rem;
+  color: textBright;
+  letter-spacing: 0.02em;
+}
+.brand:hover { text-decoration: none; color: accent; }
+
+.site-nav {
+  display: flex;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+}
+.site-nav a {
+  color: textDim;
+  font-size: 0.92rem;
+  padding: 0.15rem 0;
+  border-bottom: 2px solid transparent;
+}
+.site-nav a:hover { color: text; text-decoration: none; }
+.site-nav a.active { color: textBright; border-bottom-color: accent; }
+
+.header-search { margin-left: auto; display: flex; gap: 0.35rem; }
+.header-search input {
+  width: 15rem;
+  max-width: 40vw;
+}
+
+// ---- shared form controls -----------------------------------------------
+input[type=text], input[type=search], select, textarea {
+  background: bgSunken;
+  color: text;
+  border: 1px solid border;
+  border-radius: radius;
+  padding: 0.35rem 0.55rem;
+  font-family: uiFont;
+  font-size: 0.92rem;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: accent;
+}
+
+button, .btn {
+  background: bgRaised;
+  color: text;
+  border: 1px solid border;
+  border-radius: radius;
+  padding: 0.35rem 0.75rem;
+  font-family: uiFont;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+button:hover, .btn:hover { border-color: accent; color: textBright; text-decoration: none; }
+
+.btn-primary { background: accent; color: bg; border-color: accent; font-weight: 600; }
+.btn-primary:hover { color: bg; filter: brightness(1.1); }
+
+// ---- layout --------------------------------------------------------------
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 4rem;
+}
+
+.page-title {
+  margin: 0 0 0.25rem;
+  font-size: 1.5rem;
+  color: textBright;
+  font-weight: 600;
+}
+.page-sub { margin: 0 0 1.25rem; color: textDim; font-size: 0.92rem; }
+
+.card {
+  background: bgRaised;
+  border: 1px solid border;
+  border-radius: radius;
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 1rem;
+}
+.card h2 { margin: 0 0 0.6rem; font-size: 1.05rem; color: textBright; font-weight: 600; }
+
+.notice {
+  border-left: 3px solid accentWarm;
+  background: bgRaised;
+  padding: 0.7rem 1rem;
+  border-radius: 0 radius radius 0;
+  margin-bottom: 1rem;
+  color: textDim;
+}
+.notice strong { color: textBright; }
+
+.empty { color: textDim; font-style: italic; }
+
+.error-page code {
+  font-family: monoFont;
+  font-size: 0.9rem;
+  color: danger;
+}
+
+// ---- reader --------------------------------------------------------------
+.reader-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid border;
+}
+.reader-bar form { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+.reader-bar label { color: textDim; font-size: 0.85rem; }
+
+.chapter-nav { display: flex; gap: 0.5rem; margin-left: auto; }
+
+.scripture {
+  max-width: maxWidth;
+  font-family: readFont;
+  font-size: 1.16rem;
+  line-height: 1.72;
+  color: textBright;
+}
+
+.verse {
+  display: block;
+  margin: 0 0 0.55rem;
+  scroll-margin-top: 4rem;   // so #v16 does not land under the sticky header
+}
+.verse:target {
+  background: rgba(127, 179, 213, 0.12);
+  border-radius: radius;
+  box-shadow: 0 0 0 0.4rem rgba(127, 179, 213, 0.12);
+}
+
+.verse-num {
+  font-family: uiFont;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: accent;
+  vertical-align: 0.35em;
+  margin-right: 0.3rem;
+  text-decoration: none;
+}
+.verse-num:hover { text-decoration: underline; }
+
+// Marks a verse that has notes or cross-references attached (Phase 2).
+.verse-mark {
+  font-family: uiFont;
+  font-size: 0.7rem;
+  color: accentWarm;
+  margin-left: 0.3rem;
+  vertical-align: 0.35em;
+}
+
+// ---- verse hub -----------------------------------------------------------
+.verse-hero {
+  font-family: readFont;
+  font-size: 1.3rem;
+  line-height: 1.6;
+  color: textBright;
+  max-width: maxWidth;
+  margin-bottom: 0.4rem;
+}
+
+.translation-row {
+  display: flex;
+  gap: 0.8rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid border;
+}
+.translation-row:last-child { border-bottom: none; }
+.translation-tag {
+  flex: 0 0 3.2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: textDim;
+  text-transform: uppercase;
+  padding-top: 0.3rem;
+}
+.translation-body { font-family: readFont; font-size: 1.05rem; line-height: 1.65; }
+
+.link-row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.5rem; }
+
+// ---- book grid (dashboard) ----------------------------------------------
+.book-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.4rem;
+  margin-bottom: 1.5rem;
+}
+.book-grid a {
+  display: block;
+  padding: 0.4rem 0.6rem;
+  background: bgSunken;
+  border: 1px solid border;
+  border-radius: radius;
+  font-size: 0.88rem;
+  color: text;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.book-grid a:hover { border-color: accent; color: textBright; text-decoration: none; }
+
+.testament-label {
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: textDim;
+  margin: 1.2rem 0 0.5rem;
+}
+
+// ---- misc ----------------------------------------------------------------
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1rem; font-size: 0.92rem; }
+.kv dt { color: textDim; }
+.kv dd { margin: 0; font-family: monoFont; font-size: 0.85rem; word-break: break-all; }
+
+.site-footer {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1rem;
+  color: textDim;
+  font-size: 0.82rem;
+  border-top: 1px solid border;
+}
+
+@media (max-width: 600px) {
+  .header-search { margin-left: 0; width: 100%; }
+  .header-search input { width: 100%; max-width: none; }
+  .scripture { font-size: 1.1rem; }
+}
