@@ -183,8 +183,14 @@ measured range and the reason for the shape.
 
 ## State at end of session
 
-Phase 3 complete. `PLAN.md` carries a full "Phase 3 outcome" section; `README.md`
-moved to Phase 3 of 5 and gained a "Searching" section.
+Phase 3 complete and committed as `dbac8ca` ("Phase 3: combined search and
+topical study"), on `main`. `PLAN.md` carries a full "Phase 3 outcome" section;
+`README.md` moved to Phase 3 of 5 and gained a "Searching" section.
+
+Still unverified, carried from Phase 2: **ScriptTagger hover popups in a real
+browser**. The Chrome instance available here cannot reach this machine's
+localhost. The served HTML is right (config before script tag, `blb-no-tag` on
+scripture containers but not note bodies) — it just wants a human to look at it.
 
 **Phase 4** is the sermon builder: sermons CRUD, outline UI, `AssembleOutline`,
 Markdown/HTML export, then streaming AI drafting via the Anthropic API.
