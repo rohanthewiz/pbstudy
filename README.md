@@ -68,6 +68,9 @@ pbstudy [serve]                      start the web app (default)
 pbstudy download <kjv|web|asv|all>   fetch scripture into the local cache
 pbstudy backup [dir]                 snapshot the study database
 pbstudy sync                         reconcile with the sync directory
+pbstudy compact [days] [--dry-run]   remove tombstones older than <days>
+                                     (default 90) from the database and the
+                                     sync directory
 ```
 
 Downloads are idempotent — re-running replaces a translation in place rather
@@ -155,7 +158,8 @@ you record from Romans while studying Paul is waiting for you in Genesis when
 you get there.
 
 Nothing is erased. Deleting a note or a tag retires it with a tombstone, which
-is what lets the deletion travel to your other machines once sync lands.
+is what lets the deletion travel to your other machines. Tombstones are cleared
+out later, on your say-so — see [Compacting](#compacting).
 
 ### Building a sermon
 
@@ -253,6 +257,45 @@ That report is the whole user interface for a feature whose success is
 otherwise invisible. A file it cannot use — unreadable JSON, a record in the
 wrong folder, a format written by a newer pbstudy — is named and left alone
 rather than skipped in silence.
+
+### Compacting
+
+Tombstones are permanent by default, which is the right default and the wrong
+end state: a note you deleted three years ago keeps a file in the sync folder
+announcing that it is gone, to machines that agreed long ago.
+
+`pbstudy compact` clears them out. It removes tombstoned rows, and their files,
+once the delete is older than a retention window you choose:
+
+```sh
+pbstudy compact --dry-run   # what a 90-day pass would take, taking nothing
+pbstudy compact             # 90 days, the default
+pbstudy compact 30          # a shorter leash
+```
+
+```
+Compact ~/iCloud/pbstudy
+  tombstones deleted before 2026-05-08 03:35 UTC are eligible
+  Removed 3 tombstones and 4 files.
+  Notes              1 row removed · 1 file removed
+  Tags               1 row removed · 2 files removed
+  Cross-references   nothing to remove
+  Sermons            1 row removed · 1 file removed
+```
+
+**The window is the safety.** A machine that has been switched off longer than
+the retention period never saw the delete, still holds the row alive, and will
+put it back the next time it syncs. Ninety days is sized for a laptop that spent
+a season in a drawer. Run it on each machine — compaction is local, and a
+machine that has not compacted simply re-exports its own tombstone files, which
+the others take back in and remove again on their next pass.
+
+Each run reconciles the folder before it removes anything, so an undelete
+written on another machine is applied rather than thrown away, and `--dry-run`
+reports exactly what a real pass would take.
+
+There is no button for this. Every other maintenance action in pbstudy is
+additive or reversible; this one is neither, and it should be typed.
 
 ---
 

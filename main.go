@@ -12,13 +12,16 @@
 //	pbstudy download <kjv|web|asv|all> fetch scripture into the local cache
 //	pbstudy backup [dir]               write a snapshot of the study database
 //	pbstudy sync                       reconcile with the sync directory
+//	pbstudy compact [days]             remove tombstones the sync no longer needs
 package main
 
 import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/rohanthewiz/logger"
 	"github.com/rohanthewiz/serr"
@@ -82,6 +85,8 @@ func run(args []string) error {
 		return cmdBackup(conf, st, args)
 	case "sync":
 		return cmdSync(conf, st)
+	case "compact":
+		return cmdCompact(conf, st, args)
 	default:
 		usage()
 		return serr.New("unknown command", "command", command)
@@ -96,6 +101,9 @@ Usage:
   pbstudy download <kjv|web|asv|all>   fetch scripture into the local cache
   pbstudy backup [dir]                 snapshot the study database
   pbstudy sync                         reconcile with the sync directory
+  pbstudy compact [days] [--dry-run]   remove tombstones older than <days>
+                                       (default 90) from the database and the
+                                       sync directory
 
 Environment:
   PBSTUDY_DATA_DIR    where the databases live      (default ~/.pbstudy)
@@ -224,6 +232,88 @@ func cmdSync(conf cfg.Config, st *store.Store) error {
 		for _, p := range e.Problems {
 			fmt.Printf("      ! %s\n", p)
 		}
+	}
+	return nil
+}
+
+// cmdCompact removes tombstones that have outlived their purpose.
+//
+// # Why this is a command and not a button
+//
+// Every other maintenance action in this app is reversible or additive. This one
+// throws away the last evidence that something was deleted, on a schedule only
+// the user knows is safe — how long a second machine has been away is not a
+// thing this process can see. A command has to be typed, takes the window as an
+// argument, and offers --dry-run; a button on the settings page would be one
+// click between a user and an irreversible pass with a number they never chose.
+//
+// # Why it requires a sync directory
+//
+// bytdb's file is append-only, so a DELETE reclaims nothing on disk; compacting
+// a database with no sync folder would spend a destructive pass to save nothing.
+// The sync folder is where the saving is: one JSON file per dead row, kept
+// forever, in a directory a daemon re-uploads. Somebody wanting the database
+// itself smaller wants `pbstudy backup`, which writes a fresh file.
+func cmdCompact(conf cfg.Config, st *store.Store, args []string) error {
+	if !conf.SyncEnabled() {
+		return serr.New("compact needs a sync directory",
+			"hint", "set "+cfg.EnvSyncDir+"; without one there are no tombstone "+
+				"files to remove, and bytdb's append-only file does not shrink")
+	}
+
+	retention := syncer.DefaultRetention
+	dryRun := false
+
+	// Hand-parsed rather than through flag: this binary has no flag set, and
+	// two forms is not enough to justify starting one.
+	for _, arg := range args {
+		switch arg {
+		case "-n", "--dry-run":
+			dryRun = true
+		default:
+			days, err := strconv.Atoi(arg)
+			if err != nil || days < 0 {
+				return serr.New("compact takes a whole number of days",
+					"got", arg, "usage", "pbstudy compact [days] [--dry-run]")
+			}
+			retention = time.Duration(days) * 24 * time.Hour
+		}
+	}
+
+	sync, err := syncer.New(st.Study, conf.SyncDir)
+	if err != nil {
+		return err
+	}
+
+	rep, err := sync.Compact(retention, dryRun)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Compact %s\n", rep.Dir)
+	fmt.Printf("  tombstones deleted before %s are eligible\n",
+		rep.Cutoff.Format("2006-01-02 15:04 MST"))
+	if rep.Reconcile.Imported() > 0 || rep.Reconcile.Problems() > 0 {
+		// The import ran whether or not it found anything; only say so when it
+		// did, since a silent "0 changes in" is noise on every run.
+		fmt.Printf("  reconciled first: %s\n", rep.Reconcile.Headline())
+		for _, e := range rep.Reconcile.Entities {
+			for _, p := range e.Problems {
+				fmt.Printf("      ! %s\n", p)
+			}
+		}
+	}
+	fmt.Printf("  %s\n", rep.Headline())
+
+	for _, e := range rep.Entities {
+		fmt.Printf("  %-18s %s\n", e.Label(), e.Summary())
+		for _, p := range e.Problems {
+			fmt.Printf("      ! %s\n", p)
+		}
+	}
+
+	if dryRun {
+		fmt.Println("\nThis was a dry run; nothing was removed.")
 	}
 	return nil
 }

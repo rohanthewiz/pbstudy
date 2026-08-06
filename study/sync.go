@@ -52,7 +52,7 @@ const (
 )
 
 // Syncable is what the syncer needs of any record: who it is, when it was last
-// written, and what it claims to be.
+// written, what it claims to be, and whether it is a tombstone.
 //
 // The methods are named SyncX rather than ID/UpdatedAt because the records
 // carry fields by those names — and the fields are what the JSON is built
@@ -62,6 +62,20 @@ type Syncable interface {
 	SyncStamp() time.Time
 	SyncKind() string
 	SyncVersion() int
+	SyncDeleted() time.Time
+}
+
+// deletedAt is the zero-time form of a tombstone pointer.
+//
+// The records carry *time.Time so an absent tombstone is an absent JSON field
+// rather than a zero time somebody has to remember means "alive"; compaction
+// wants the same fact as a plain value it can compare against a cutoff without
+// a nil check at every call site. IsZero() is the "still alive" test.
+func deletedAt(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
 }
 
 // NoteRecord is a note as it travels between machines.
@@ -87,10 +101,11 @@ type NoteRecord struct {
 	DeletedAt *time.Time  `json:"deletedAt,omitempty"`
 }
 
-func (r NoteRecord) SyncID() string       { return r.ID }
-func (r NoteRecord) SyncStamp() time.Time { return r.UpdatedAt }
-func (r NoteRecord) SyncKind() string     { return r.Kind }
-func (r NoteRecord) SyncVersion() int     { return r.V }
+func (r NoteRecord) SyncID() string         { return r.ID }
+func (r NoteRecord) SyncStamp() time.Time   { return r.UpdatedAt }
+func (r NoteRecord) SyncKind() string       { return r.Kind }
+func (r NoteRecord) SyncVersion() int       { return r.V }
+func (r NoteRecord) SyncDeleted() time.Time { return deletedAt(r.DeletedAt) }
 
 // TagRecord is a tag as it travels. Name is the cross-machine identity; see
 // ApplyTag for what happens when two machines minted different ids for it.
@@ -104,10 +119,11 @@ type TagRecord struct {
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
 }
 
-func (r TagRecord) SyncID() string       { return r.ID }
-func (r TagRecord) SyncStamp() time.Time { return r.UpdatedAt }
-func (r TagRecord) SyncKind() string     { return r.Kind }
-func (r TagRecord) SyncVersion() int     { return r.V }
+func (r TagRecord) SyncID() string         { return r.ID }
+func (r TagRecord) SyncStamp() time.Time   { return r.UpdatedAt }
+func (r TagRecord) SyncKind() string       { return r.Kind }
+func (r TagRecord) SyncVersion() int       { return r.V }
+func (r TagRecord) SyncDeleted() time.Time { return deletedAt(r.DeletedAt) }
 
 // XrefRecord is a cross-reference as it travels. From and To are whole Refs
 // rather than the eight loose columns the table stores, because the file is
@@ -124,10 +140,11 @@ type XrefRecord struct {
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
 }
 
-func (r XrefRecord) SyncID() string       { return r.ID }
-func (r XrefRecord) SyncStamp() time.Time { return r.UpdatedAt }
-func (r XrefRecord) SyncKind() string     { return r.Kind }
-func (r XrefRecord) SyncVersion() int     { return r.V }
+func (r XrefRecord) SyncID() string         { return r.ID }
+func (r XrefRecord) SyncStamp() time.Time   { return r.UpdatedAt }
+func (r XrefRecord) SyncKind() string       { return r.Kind }
+func (r XrefRecord) SyncVersion() int       { return r.V }
+func (r XrefRecord) SyncDeleted() time.Time { return deletedAt(r.DeletedAt) }
 
 // SermonRecord is a sermon as it travels, outline and draft included. The
 // outline is the same []Section the database column holds, so the file and the
@@ -145,10 +162,11 @@ type SermonRecord struct {
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
 }
 
-func (r SermonRecord) SyncID() string       { return r.ID }
-func (r SermonRecord) SyncStamp() time.Time { return r.UpdatedAt }
-func (r SermonRecord) SyncKind() string     { return r.Kind }
-func (r SermonRecord) SyncVersion() int     { return r.V }
+func (r SermonRecord) SyncID() string         { return r.ID }
+func (r SermonRecord) SyncStamp() time.Time   { return r.UpdatedAt }
+func (r SermonRecord) SyncKind() string       { return r.Kind }
+func (r SermonRecord) SyncVersion() int       { return r.V }
+func (r SermonRecord) SyncDeleted() time.Time { return deletedAt(r.DeletedAt) }
 
 // --- export ----------------------------------------------------------------
 

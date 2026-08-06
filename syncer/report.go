@@ -41,6 +41,14 @@ type EntityReport struct {
 	Notes []string
 }
 
+// problemSink is anything that collects the files a pass could not use.
+//
+// The file readers are shared between reconciliation and compaction, and the
+// two report what they did in different words — "3 in, 2 out" against "3 rows
+// removed" — but an unreadable file is the same fact to both. This is the one
+// thing they have in common, so it is the only thing the readers ask for.
+type problemSink interface{ fail(msg string) }
+
 // fail records a problem. Unexported: only the pass that hit it may add one.
 func (e *EntityReport) fail(msg string) { e.Problems = append(e.Problems, msg) }
 
@@ -51,8 +59,13 @@ func (e *EntityReport) Note(msg string) { e.Notes = append(e.Notes, msg) }
 func (e EntityReport) Changed() bool { return e.Imported > 0 || e.Exported > 0 }
 
 // Label is the entity's plural name for display.
-func (e EntityReport) Label() string {
-	switch e.Kind {
+func (e EntityReport) Label() string { return kindLabel(e.Kind) }
+
+// kindLabel renders a study.SyncKind* value as the heading a person reads.
+// Shared by both report types so the two never disagree about what to call a
+// cross-reference.
+func kindLabel(kind string) string {
+	switch kind {
 	case "note":
 		return "Notes"
 	case "tag":
@@ -62,7 +75,7 @@ func (e EntityReport) Label() string {
 	case "sermon":
 		return "Sermons"
 	default:
-		return e.Kind
+		return kind
 	}
 }
 

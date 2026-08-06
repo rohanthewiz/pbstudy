@@ -243,6 +243,21 @@ func (s Settings) renderSync(b *element.Builder) (x any) {
 					"two wins, row by row. Edits are also exported automatically a couple of " +
 					"seconds after you make them.")
 
+			// Deliberately a sentence rather than a third button. Compaction
+			// throws away the evidence of a delete and cannot be undone by
+			// running it again, so it belongs behind a command that has to be
+			// typed — with a retention window the user chose, on a machine they
+			// know has not been away.
+			b.PClass("page-sub").R(
+				b.T("Deleted rows are kept as tombstones so the deletion can reach your "),
+				b.T("other machines. To clear out ones old enough that every machine has "),
+				b.T("seen them, run "),
+				b.Code().T("pbstudy compact --dry-run"),
+				b.T(" to see what would go, then "),
+				b.Code().T("pbstudy compact"),
+				b.T(" — with pbstudy stopped, on each machine."),
+			)
+
 			s.renderSyncResult(b)
 			s.renderBackups(b)
 		}),

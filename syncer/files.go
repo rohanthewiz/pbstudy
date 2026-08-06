@@ -54,7 +54,7 @@ func (s *Syncer) entityDir(folder string) string { return filepath.Join(s.dir, f
 //   - a newer format version — see study.SyncVersion. Skipping is the only safe
 //     answer: importing what we can parse would drop the fields we cannot, and
 //     the export half of the run would then write that loss back to the file.
-func readRecords[T study.Syncable](dir, kind string, rep *EntityReport) ([]T, error) {
+func readRecords[T study.Syncable](dir, kind string, rep problemSink) ([]T, error) {
 	names, err := recordFiles(dir)
 	if err != nil {
 		return nil, err
@@ -176,6 +176,30 @@ func writeRecord(dir string, rec study.Syncable) error {
 		return serr.Wrap(err, "cannot replace sync file", "path", final)
 	}
 	return nil
+}
+
+// removeRecord deletes one record's file, and reports whether there was one to
+// delete.
+//
+// Only compaction calls this. It routes the id through recordFileName for the
+// same reason writeRecord does — an id that arrived in a file is not
+// necessarily an id — and it treats an already-absent file as success: another
+// machine's compaction may have removed it through the same shared folder
+// moments ago, and that is the outcome we wanted anyway.
+func removeRecord(dir, id string) (bool, error) {
+	name := recordFileName(id)
+	if name == "" {
+		return false, serr.New("record id is not usable as a file name", "id", id)
+	}
+
+	path := filepath.Join(dir, name)
+	if err := os.Remove(path); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, serr.Wrap(err, "cannot remove sync file", "path", path)
+	}
+	return true, nil
 }
 
 // recordFileName builds the file name for an id, refusing anything that is not

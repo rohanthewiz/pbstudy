@@ -506,3 +506,68 @@ web/handlers_sync.go        /sync/run, /backup, settings status, backup listing
 main.go                     + sync subcommand, startup import, shutdown flush
 assets/styles/app.styl      + sync report, problem lines, snapshot list
 ```
+
+## Compaction (implemented, post-Phase 5)
+
+Closes the "nothing prunes tombstones" item carried forward from Phase 5. A
+tombstone is evidence a delete happened; once every machine has seen it, the row
+and its file are carrying nothing but weight.
+
+`pbstudy compact [days] [--dry-run]` — default 90 days, requires a sync
+directory, refuses to run while `serve` holds the data-directory lock.
+
+**The pass, in order.** Reconcile (import only, under the same hold of `runMu`)
+→ per entity: list rows tombstoned strictly before the cutoff, hard-delete them
+with their children, delete their files → then delete any *remaining* file whose
+own record is an expired tombstone with no local row.
+
+**Decisions worth keeping:**
+
+- **Import first.** Compaction deletes a file, which is the only record of an
+  event, so anything the folder is still holding must be applied first — an
+  undelete from the other machine, or a delete this machine has not seen. Import
+  is not destructive; it is what `serve` already does at startup. Both halves run
+  under one hold of `runMu`, or a debounced export would rewrite files the pass
+  had already decided to delete.
+- **The retention window is the whole safety.** Nothing in the process can see
+  how long a second machine has been away. 90 days is sized against a laptop that
+  spent a season in a drawer, and the cost of waiting is a few hundred bytes per
+  dead row.
+- **`purgeRows` narrows the id list against `deleted_at` before deleting
+  anything.** The list is assembled from a sync folder as well as from the local
+  database, and a file claiming a row is dead is not the same as the row being
+  dead here. Narrowing before the child deletes is what keeps a live note's
+  anchors safe from a confused caller.
+- **The row goes before its file.** A crash between the two leaves a file with no
+  row, which the next pass re-imports as a tombstone and removes again. The other
+  order leaves a row with no file, which exports itself straight back.
+- **The orphan branch is what finally clears merged-tag files.** `ApplyNote`
+  creates tags by name before their own files are read, so every machine mints
+  its own id for a shared tag and the folder holds one redundant file per machine
+  per name. Those ids have no local row and never will, so only compaction can
+  remove them — and it does, once the record they carry is an expired tombstone.
+- **A command, not a button.** Every other maintenance action in the app is
+  additive or reversible. The settings page gained a sentence pointing at the
+  command instead.
+- **No database-only mode.** bytdb's file is append-only, so `DELETE` reclaims
+  nothing on disk; compacting without a sync folder would spend a destructive
+  pass to save nothing. `pbstudy backup` is what writes a fresh, smaller file.
+
+**Still true afterwards:** compaction is per machine. One that has not compacted
+re-exports its tombstone files, which the others import and remove again on the
+next pass — bounded churn that converges the moment both compact, and what comes
+back is a tombstone, invisible to every read in `study/`.
+
+```
+study/compact.go            Expired*/Purge* per entity, purgeRows narrowing
+     compact_test.go        children removed, live rows refused, strict cutoff
+     sync.go                + Syncable.SyncDeleted
+syncer/compact.go           Compact, CompactReport, compactEntity, DefaultRetention
+      compact_test.go       expired vs recent, dry run, orphaned tag files,
+                            two-host convergence, no .bytdb / .tmp left behind
+      syncer.go             run split into run/runLocked so Compact can reuse it
+      files.go              + removeRecord; readRecords takes a problemSink
+      report.go             + problemSink, kindLabel shared by both reports
+main.go                     + compact subcommand
+web/ui/pages.go             + the sentence on the sync card
+```

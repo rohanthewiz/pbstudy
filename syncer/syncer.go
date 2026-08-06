@@ -179,12 +179,22 @@ func (s *Syncer) run(doImport, doExport bool) (Report, error) {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
 
+	if err := s.ensureDirs(); err != nil {
+		return Report{Dir: s.dir, StartedAt: time.Now().UTC()}, err
+	}
+	return s.runLocked(doImport, doExport), nil
+}
+
+// runLocked is the body of a reconciliation, with runMu already held and the
+// folder tree already known to exist.
+//
+// Split out from run so Compact can reconcile before it starts deleting things
+// without releasing the lock in between — a compaction that let an export slip
+// in would be deciding what is expired against a folder that changed underneath
+// it. Every caller must hold runMu.
+func (s *Syncer) runLocked(doImport, doExport bool) Report {
 	started := time.Now()
 	rep := Report{Dir: s.dir, StartedAt: started.UTC()}
-
-	if err := s.ensureDirs(); err != nil {
-		return rep, err
-	}
 
 	// The four entities are independent, and each one's failure is recorded in
 	// its own line of the report rather than abandoning the pass: a malformed
@@ -226,7 +236,7 @@ func (s *Syncer) run(doImport, doExport bool) (Report, error) {
 	)
 
 	rep.Duration = time.Since(started)
-	return rep, nil
+	return rep
 }
 
 // applied is what an apply function reports back: whether the record actually
