@@ -1,5 +1,6 @@
 # pbstudy — Phase 4: sermon builder, exports, and AI drafting
 
+- **Session ID**: `1ba8e4ff-be95-4300-a428-92015de5dda0`
 - **Date**: 2026-08-05
 - **Scope**: Implement Phase 4 of `PLAN.md` (sermons CRUD, outline UI,
   `AssembleOutline`, Markdown/HTML export, streaming AI draft)
