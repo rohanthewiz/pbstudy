@@ -6,8 +6,8 @@ Track notes and correlations between scriptures, study topics, and assemble
 sermons and teachings from what you have collected. Scripture is cached
 locally, so study works with the network off.
 
-> **Status: Phase 2 of 5.** The scripture cache, chapter reader, verse hub,
-> search, notes, tags and cross-references are working. Notes search, the
+> **Status: Phase 3 of 5.** The scripture cache, chapter reader, verse hub,
+> notes, tags, cross-references and search across all of them are working. The
 > sermon builder and file-sync are still to come — see [Roadmap](#roadmap) and
 > [PLAN.md](PLAN.md).
 
@@ -99,9 +99,24 @@ export, or a backup, and the drafting UI is hidden entirely when it is unset.
   one is anchored to
 - `/search?q=` — press `/` from anywhere to jump to the search box
 
-The search box does double duty. Type a phrase and it scans the scripture text;
-type a reference and it takes you straight there. `John 3:16`, `1 Jn 2:1`,
-`II Corinthians 5:17`, `Ps 23`, `Jude 3` and `Gen. 1:1` all parse.
+### Searching
+
+One page answers "where does this come up?" across both halves of the app:
+
+- **Scripture** — a case-insensitive scan of the translation you pick, with the
+  match highlighted in place.
+- **My notes** — note titles and bodies, tag names and descriptions, and the
+  comments on your cross-references. A comment you typed once while linking two
+  passages is findable text, not a dead end.
+
+Scope tabs narrow it to either half, and every search is a plain URL you can
+bookmark: `/search?q=grace&scope=notes&translation=web`.
+
+Type a reference instead of a phrase and the search takes you straight there —
+`John 3:16`, `1 Jn 2:1`, `II Corinthians 5:17`, `Ps 23`, `Jude 3`, `Lev 16:14`
+and `Gen. 1:1` all parse. The one exception is the **My notes** scope, where a
+reference lists what you have written *about* that passage instead of jumping
+to it, since that is what you were asking for.
 
 ### Writing notes
 
@@ -127,7 +142,9 @@ Two more things happen inside a note body:
 
 Tags are created by typing them. There is no tag manager to visit first: put
 `Grace, Covenant` in a note's tag field and both exist, and `/tags/…` becomes
-a topical study collecting every note that carries one.
+a topical study: the passages that topic touches — gathered from every note
+carrying the tag, deduplicated and put back into canonical order — above the
+notes themselves.
 
 Cross-references are drawn from the verse hub and shown from both ends. A link
 you record from Romans while studying Paul is waiting for you in Genesis when
@@ -173,9 +190,14 @@ primary key. bytdb stores rows in primary-key order in a single key space, so
 reading a chapter is one bounded range scan that arrives already sorted by
 verse — no secondary index, and no sort step.
 
-Measured on this data: 33k-row bulk load in 75 ms, chapter read in 41 µs, a
-full-text `ILIKE` scan of a translation in 241 µs. Fast enough that a search
-index would be complexity in exchange for latency no one can perceive.
+Measured on this data: 33k-row bulk load in 75 ms, chapter read in 41 µs.
+
+Search rides the same key. `EXPLAIN` shows an index scan with
+`Index Cond: (translation = 'kjv')` and the `ILIKE` applied as a filter, so a
+text search reads one translation's ~31k verses and does not slow down as more
+translations are downloaded — 40–85 ms with all three cached, and *less* when
+many verses match, because the result limit stops the scan early. Fast enough
+that a search index would be complexity bought with latency no one waits on.
 
 ### Blue Letter Bible
 
@@ -195,8 +217,8 @@ is the useful half of the behaviour without the double-linking.
 | --- | --- | --- |
 | 1 | Scripture cache, reader, verse hub, search | **done** |
 | 2 | Notes, tags, cross-references, Strong's shortcodes | **done** |
-| 3 | Notes search, combined scope, topical study pages | next |
-| 4 | Sermon outline builder, Markdown/HTML export, AI drafting | planned |
+| 3 | Notes search, combined scope, topical study pages | **done** |
+| 4 | Sermon outline builder, Markdown/HTML export, AI drafting | next |
 | 5 | File-based sync across machines, backups, settings | planned |
 
 [PLAN.md](PLAN.md) carries the full design, the schema, and the reasoning

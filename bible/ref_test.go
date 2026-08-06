@@ -23,6 +23,13 @@ func TestParseRef(t *testing.T) {
 		{"John 3.16", 43, 3, 16, 16},
 		{"John 3v16", 43, 3, 16, 16},
 
+		// Abbreviations that END in 'v'. The 'v' separator above is only a
+		// separator after a digit; otherwise "Lev 16:14" splits as "Le" plus
+		// a locator of "v 16:14" and does not parse at all.
+		{"Lev 16:14", 3, 16, 14, 14},
+		{"Rev 22:1", 66, 22, 1, 1},
+		{"REV 22:1", 66, 22, 1, 1},
+
 		// Abbreviations, OSIS codes, BLB slugs and aliases all resolve.
 		{"Jn 3:16", 43, 3, 16, 16},
 		{"jhn 3:16", 43, 3, 16, 16},

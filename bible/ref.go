@@ -45,6 +45,36 @@ func (r Ref) String() string {
 	return s
 }
 
+// Compare orders references canonically — by book, then chapter, then verse —
+// returning the -1/0/+1 convention slices.SortFunc expects.
+//
+// The end of a range breaks the final tie so that "John 3:16" sorts before
+// "John 3:16-18": the narrower reference first, which reads as the more
+// specific citation of the same place.
+func (r Ref) Compare(o Ref) int {
+	if c := cmp(r.BookNum, o.BookNum); c != 0 {
+		return c
+	}
+	if c := cmp(r.Chapter, o.Chapter); c != 0 {
+		return c
+	}
+	if c := cmp(r.VerseStart, o.VerseStart); c != 0 {
+		return c
+	}
+	return cmp(r.VerseEnd, o.VerseEnd)
+}
+
+func cmp(a, b int) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
+}
+
 // ParseRef parses a human-written scripture reference.
 //
 // Accepted shapes (book name in any spelling ByName accepts):
@@ -75,8 +105,16 @@ func ParseRef(s string) (Ref, error) {
 	idx := len(s)
 	for idx > 0 {
 		r := rune(s[idx-1])
-		if unicode.IsDigit(r) || r == ':' || r == '-' || r == '.' || r == ' ' ||
-			r == 'v' || r == 'V' {
+		if unicode.IsDigit(r) || r == ':' || r == '-' || r == '.' || r == ' ' {
+			idx--
+			continue
+		}
+		// 'v' separates chapter from verse in "3v16" — but it also ends real
+		// book abbreviations: Lev, Rev, Hab. Only read it as a separator when
+		// a digit sits immediately before it, which is the only position the
+		// "3v16" form ever puts it in. Without this test, "Lev 16:14" splits
+		// as book "Le" + locator "v 16:14" and fails to parse at all.
+		if (r == 'v' || r == 'V') && idx >= 2 && unicode.IsDigit(rune(s[idx-2])) {
 			idx--
 			continue
 		}

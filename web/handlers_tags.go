@@ -48,8 +48,11 @@ func (s *Server) handleTagShow(ctx rweb.Context) error {
 		Active:      ui.NavTags,
 		Translation: translation,
 		Body: ui.TagPage{
-			Tag:         tag,
-			Notes:       notes,
+			Tag:   tag,
+			Notes: notes,
+			// Derived from the notes already in hand — no second query, and no
+			// chance of the passage list disagreeing with the notes below it.
+			Passages:    study.RefsAcross(notes),
 			Translation: translation,
 		},
 	})

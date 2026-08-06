@@ -3,6 +3,7 @@ package ui
 import (
 	"github.com/rohanthewiz/element"
 
+	"github.com/rohanthewiz/pbstudy/bible"
 	"github.com/rohanthewiz/pbstudy/study"
 )
 
@@ -51,8 +52,12 @@ func (l TagsList) Render(b *element.Builder) (x any) {
 // TagPage is one tag's topical study: every note carrying it, whatever passage
 // each is anchored to.
 type TagPage struct {
-	Tag         study.Tag
-	Notes       []study.Note
+	Tag   study.Tag
+	Notes []study.Note
+	// Passages are the distinct anchors across those notes, in canonical
+	// order — the topic's scripture reading list, assembled from writing that
+	// was never organised around it.
+	Passages    []bible.Ref
 	Translation string
 }
 
@@ -66,6 +71,7 @@ func (p TagPage) Render(b *element.Builder) (x any) {
 	}
 
 	p.renderDescripForm(b)
+	p.renderPassages(b)
 
 	if len(p.Notes) == 0 {
 		b.PClass("empty").T(
@@ -79,6 +85,34 @@ func (p TagPage) Render(b *element.Builder) (x any) {
 	}
 
 	p.renderDangerZone(b)
+	return
+}
+
+// renderPassages lists the scripture this topic touches.
+//
+// Above the notes, not below them: the passages are the shortest answer to
+// "what does my study of this topic actually cover", and they are what a
+// sermon or a teaching gets built from. The notes underneath are the working
+// out.
+func (p TagPage) renderPassages(b *element.Builder) (x any) {
+	if len(p.Passages) == 0 {
+		return
+	}
+
+	b.DivClass("result-group").R(
+		b.H2Class("result-heading").R(
+			b.T("Passages"),
+			b.SpanClass("result-count").T(itoa(len(p.Passages))),
+		),
+		b.DivClass("card").R(
+			b.DivClass("chip-row chip-row-large").R(
+				element.ForEach(p.Passages, func(ref bible.Ref) {
+					b.AClass("chip chip-ref", "href", refHref(ref, p.Translation)).
+						T(esc(ref.String()))
+				}),
+			),
+		),
+	)
 	return
 }
 

@@ -104,6 +104,10 @@ var navItems = []navItem{
 	{NavRead, "Read", "/read"},
 	{NavNotes, "Notes", "/notes"},
 	{NavTags, "Tags", "/tags"},
+	// Search has a header box on every page, but it is also a destination in
+	// its own right now that it carries scopes and a version picker — the box
+	// cannot express either.
+	{NavSearch, "Search", "/search"},
 	{NavSermons, "Sermons", "/sermons"},
 	{NavSettings, "Settings", "/settings"},
 }

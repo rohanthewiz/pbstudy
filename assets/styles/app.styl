@@ -262,6 +262,73 @@ main {
 
 .link-row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.5rem; }
 
+// ---- search --------------------------------------------------------------
+// The on-page search form. Wider than the header's box because this is where
+// a query gets refined rather than typed in passing.
+.search-form {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.6rem 0 1rem;
+}
+.search-form input[type=search] { flex: 1 1 22rem; }
+
+// Scope tabs are links, not buttons: each one is a real, bookmarkable URL.
+// Styled as a segmented control so the set reads as one choice.
+.scope-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.1rem;
+  border-bottom: 1px solid border;
+}
+.scope-tab {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.88rem;
+  color: textDim;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: radius radius 0 0;
+  margin-bottom: -1px;
+}
+.scope-tab:hover { color: text; text-decoration: none; }
+.scope-tab.active {
+  color: textBright;
+  background: bgRaised;
+  border-color: border;
+  border-bottom-color: bgRaised;
+}
+
+// One kind of result. The heading carries its own count so a scan down the
+// page answers "how much of this is scripture and how much is mine".
+.result-group { margin-bottom: 1.6rem; }
+.result-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: textDim;
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+}
+.result-count {
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: textDim;
+  font-weight: 400;
+}
+
+// The browser default for <mark> is black on yellow, which detonates on a dark
+// reading surface. Tint the background instead and keep the reading colour.
+mark {
+  background: rgba(217, 164, 65, 0.25);
+  color: textBright;
+  border-radius: 2px;
+  padding: 0 0.1em;
+}
+
 // ---- book grid (dashboard) ----------------------------------------------
 .book-grid {
   display: grid;

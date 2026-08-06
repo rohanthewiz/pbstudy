@@ -2,6 +2,7 @@ package study
 
 import (
 	"database/sql"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -275,6 +276,36 @@ func NotesForChapter(db *sql.DB, bookNum, chapter int) ([]Note, error) {
 		return nil, err
 	}
 	return notes, nil
+}
+
+// RefsAcross collects the distinct passages a set of notes is anchored to, in
+// canonical scripture order.
+//
+// This is what turns a tag from a list of notes into a topical study: the
+// passages a topic actually touches, gathered from notes written weeks apart,
+// ordered as they sit in the canon rather than as they were written about. It
+// takes loaded notes rather than querying, because every caller already has
+// them in hand — the tag page, and later the sermon builder.
+//
+// Identical ranges collapse; overlapping ones do not. "John 3:16" and
+// "John 3:16-18" are two different citations of the same text and merging them
+// would silently discard one note's idea of what the passage is.
+func RefsAcross(notes []Note) []bible.Ref {
+	seen := make(map[bible.Ref]bool)
+	var out []bible.Ref
+
+	for _, n := range notes {
+		for _, r := range n.Refs {
+			if seen[r.Ref] {
+				continue
+			}
+			seen[r.Ref] = true
+			out = append(out, r.Ref)
+		}
+	}
+
+	slices.SortFunc(out, func(a, b bible.Ref) int { return a.Compare(b) })
+	return out
 }
 
 // CountNotes returns how many live notes exist. Used by the dashboard.

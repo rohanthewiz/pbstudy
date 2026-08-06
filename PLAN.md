@@ -74,7 +74,7 @@ Layout shell includes ScriptTagger (config before script tag, `DarkTheme: true`,
 
 1. ~~**Skeleton + reader**~~ — **DONE** (see "Phase 1 outcome" below): go mod init, cfg, store/schema (bible), books table, ref parser, downloader, `pbstudy download kjv`, server + layout + stylus + reader + verse hub with BLB links.
 2. ~~**Notes/tags/xrefs**~~ — **DONE** (see "Phase 2 outcome" below): study package, note/tag/xref CRUD, note editor + goldmark + `[[G26]]` links, verse-hub quick-add forms, reader indicator dots, tags browser.
-3. **Search + topical study**: scripture ILIKE search, notes search, combined page, ref fast-path; download WEB+ASV, parallel-translation verse hub.
+3. ~~**Search + topical study**~~ — **DONE** (see "Phase 3 outcome" below): scripture ILIKE search, notes search, combined page, ref fast-path; download WEB+ASV, parallel-translation verse hub.
 4. **Sermon builder + AI**: sermons CRUD, outline UI (form round-trips + minimal JS reorder), AssembleOutline, exports, then streaming AI draft.
 5. **Sync**: syncer package, backup route, settings; test with two DataDirs on one machine simulating two hosts.
 
@@ -182,4 +182,102 @@ web/handlers_notes.go       notes CRUD, anchor resolution, editor round-trip
    ui/verse.go              rewritten: notes, xrefs both ways, quick-add forms
    ui/reader.go             + indicator dots and chapter-level notes
 assets/styles/app.styl      chips, note rows, editor fields, disclosures, xrefs
+```
+
+## Phase 3 outcome (implemented)
+
+**Verified** against a live server holding all three translations (KJV 31,102 ·
+WEB 31,095 · ASV 31,086 verses) and three seeded notes, two tags and one
+cross-reference: `/search?q=grace` returns scripture, notes and topic groups in
+one page; `?scope=scripture` and `?scope=notes` narrow it; a query that parses
+as a reference still jumps to the verse hub (`John 3:16` → 302) or the reader
+(`John 3` → 302) — except under `scope=notes`, where it lists the notes
+anchored to that passage instead; a cross-reference found by its comment text
+renders both ends as links; the verse hub shows John 3:16 in all three
+translations; the reader's version switcher offers all three. Search timings on
+this data: scripture scope 40–85 ms, study scope 0.6 ms. Hostile queries are
+escaped in the `<title>`, in the form `value=`, and inside the `<mark>`
+highlighting. `go build` / `go vet` / `go test` / `gofmt` all clean.
+
+### Deviations from the plan above, and why
+
+- **A reference query under `scope=notes` does not jump.** The plan had one
+  fast-path rule; there are now two. Someone who has explicitly narrowed to
+  their own writing and then types "John 3:16" is asking *what have I written
+  about this verse*, not *take me there* — so the reference is resolved through
+  `NotesForVerse` / `NotesForChapter` and the jump is offered as a link on the
+  page. Under every other scope the redirect is unchanged.
+- **Search covers tags and cross-reference comments, not just notes.** The
+  comment on a correlation is often the only place a thought was written down
+  ("this is the protoevangelium", typed once while linking Genesis 3:15 to
+  Romans 16:20). Text that no query can reach is text that is lost, so
+  `scope=notes` means "everything I wrote" — note bodies and titles, tag names
+  and descriptions, and xref comments — rendered as three labelled groups.
+- **Every result group states its cap.** `scriptureSearchLimit` is 200 and
+  `study.DefaultSearchLimit` is 100; when a group fills its limit the page says
+  so. A list that silently stops reads as "there is nothing more", which is a
+  worse failure than showing fewer results.
+- **A failing study query fails the search page** rather than degrading, which
+  is the opposite of the reader's treatment of the same error. The difference is
+  what the page is for: a reader that loses its indicator dots still shows
+  scripture, but a search that quietly drops the notes group answers "where does
+  this come up?" with a confident, wrong "nowhere".
+- **Snippets are cut from the *stripped* text, not the raw Markdown.**
+  `study.Snippet` strips markup and collapses whitespace first, then locates the
+  match in the stripped copy — searching the raw source and slicing the stripped
+  copy at that offset would land somewhere else entirely. Two cases fall back to
+  a leading excerpt instead of guessing: a match that lived only inside markup
+  the stripper removed (a link URL), and any input where lowercasing changes
+  byte length (non-ASCII), where a wrong offset would cut a rune in half. The
+  same guard already protects `ui.highlight`.
+- **Scope semantics live in one place.** `ui.NormalizeScope` maps the URL value
+  and `ui.Search.Wants` answers "does this group belong on the page" — the
+  handler asks the same method before doing the work, so the page cannot query
+  one thing and display another. An unknown scope widens to "all" rather than
+  erroring: a scope is a filter, and the honest response to a filter nobody
+  understands is to filter nothing.
+- **Search joined the nav.** It has a header box on every page, but that box
+  cannot express a scope or a version, and search is now a destination.
+- **The tag page grew a passage list** (`study.RefsAcross`): the distinct
+  anchors across a tag's notes, deduplicated and sorted canonically via a new
+  `bible.Ref.Compare`. This is the topical-study payoff — the scripture a topic
+  actually touches, gathered from notes that were never organised around it —
+  and it is derived from the notes already loaded, so it cannot disagree with
+  the list below it. Identical ranges collapse; overlapping ones do not, because
+  "John 3:16" and "John 3:16-18" are two different citations of the same text.
+
+### Bug found and fixed
+
+- **`ParseRef` could not read `Lev 16:14` or `Rev 22:1`.** The parser walks
+  backwards over the numeric tail and accepted `v` as a chapter/verse separator
+  (the "John 3v16" form) *anywhere* — so "Lev 16:14" split as book `Le` plus
+  locator `v 16:14` and failed outright. `v` is now a separator only when a
+  digit sits immediately before it, which is the only position the "3v16" form
+  ever puts it in. Found while seeding a note anchored to Leviticus 16:14, not
+  by any existing test; `bible/ref_test.go` now covers Lev/Rev/REV.
+
+### Measured, and what it means for Phase 4+
+
+`EXPLAIN` on the scripture search confirms bytdb uses the primary key's leading
+column: `Index Scan using verses_pkey` with `Index Cond: (translation = 'kjv')`
+and the ILIKE as a `Filter`. So the scan is bounded to one translation's ~31k
+rows and does *not* grow as more translations are downloaded. It costs 40–85 ms
+— a full scan when few rows match, and *less* when many do, because the `LIMIT`
+sits above the scan and stops it early. Still inside the plan's 100 ms target,
+so no index was built; if it ever needs to be faster, the answer is a separate
+term index, not a schema change to `verses`.
+
+### Phase 3 file map
+
+```
+study/search.go             SearchNotes/SearchTags/SearchXrefs, NoteHits, Snippet
+     search_test.go         snippet windowing, UTF-8 guard, LIKE escaping, RefsAcross
+     notes.go               + RefsAcross (distinct anchors, canonical order)
+bible/ref.go                + Ref.Compare; 'v' separator fix in ParseRef
+web/handlers_search.go      rewritten: scopes, two fast-path rules, one render exit
+   ui/search.go             rewritten: form, scope tabs, four result groups
+   ui/search_test.go        scope normalization, URL escaping, highlight escaping
+   ui/tags.go               + passage list on the topical page
+   ui/layout.go             + Search in the nav
+assets/styles/app.styl      search form, scope tabs, result groups, <mark>
 ```
