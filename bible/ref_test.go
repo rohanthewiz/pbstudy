@@ -160,3 +160,91 @@ func TestChapterCounts(t *testing.T) {
 		t.Errorf("book count = %d, want 66", len(Books))
 	}
 }
+
+// TestParseRefList covers the note editor's References field, where a user
+// types several anchors at once and one typo must not cost them the others.
+func TestParseRefList(t *testing.T) {
+	cases := []struct {
+		name         string
+		in           string
+		wantRefs     []string
+		wantRejected []string
+	}{
+		{
+			name:     "semicolon separated",
+			in:       "John 3:16-18; Rom 5:8; Ps 23",
+			wantRefs: []string{"John 3:16-18", "Romans 5:8", "Psalms 23"},
+		},
+		{
+			name:     "comma separated",
+			in:       "John 3:16, Genesis 1:1",
+			wantRefs: []string{"John 3:16", "Genesis 1:1"},
+		},
+		{
+			// Semicolons win when both appear, so the second segment stays
+			// whole. It is then rejected rather than silently truncated to
+			// "Genesis 1:1" — the multi-verse comma form is not a shape
+			// ParseRef accepts, and quietly dropping the ", 2" would store an
+			// anchor the user did not ask for.
+			name:         "semicolons take precedence over commas",
+			in:           "John 3:16; Genesis 1:1, 2",
+			wantRefs:     []string{"John 3:16"},
+			wantRejected: []string{"Genesis 1:1, 2"},
+		},
+		{
+			name:         "partial success reports the rest",
+			in:           "John 3:16; not a reference; Rom 5:8",
+			wantRefs:     []string{"John 3:16", "Romans 5:8"},
+			wantRejected: []string{"not a reference"},
+		},
+		{
+			name: "blank yields nothing at all",
+			in:   "   ",
+		},
+		{
+			name:     "empty segments are skipped, not rejected",
+			in:       "John 3:16;;  ; Rom 5:8",
+			wantRefs: []string{"John 3:16", "Romans 5:8"},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			refs, rejected := ParseRefList(c.in)
+
+			if len(refs) != len(c.wantRefs) {
+				t.Fatalf("ParseRefList(%q) parsed %d refs, want %d", c.in, len(refs), len(c.wantRefs))
+			}
+			for i, want := range c.wantRefs {
+				if got := refs[i].String(); got != want {
+					t.Errorf("ParseRefList(%q)[%d] = %q, want %q", c.in, i, got, want)
+				}
+			}
+
+			if len(rejected) != len(c.wantRejected) {
+				t.Fatalf("ParseRefList(%q) rejected %v, want %v", c.in, rejected, c.wantRejected)
+			}
+			for i, want := range c.wantRejected {
+				if rejected[i] != want {
+					t.Errorf("ParseRefList(%q) rejected[%d] = %q, want %q", c.in, i, rejected[i], want)
+				}
+			}
+		})
+	}
+}
+
+// TestRefListRoundTrip checks that what the editor stores can be re-rendered
+// into what the editor accepts — the property that makes editing a note's
+// anchors non-destructive.
+func TestRefListRoundTrip(t *testing.T) {
+	const in = "John 3:16-18; Romans 5:8; Psalms 23"
+
+	refs, rejected := ParseRefList(in)
+	if len(rejected) > 0 {
+		t.Fatalf("ParseRefList(%q) rejected %v", in, rejected)
+	}
+
+	if got := FormatRefList(refs); got != in {
+		t.Errorf("FormatRefList(ParseRefList(%q)) = %q, want the input back", in, got)
+	}
+}

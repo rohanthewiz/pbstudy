@@ -115,6 +115,22 @@ button:hover, .btn:hover { border-color: accent; color: textBright; text-decorat
 .btn-primary { background: accent; color: bg; border-color: accent; font-weight: 600; }
 .btn-primary:hover { color: bg; filter: brightness(1.1); }
 
+.btn-danger { border-color: danger; color: danger; }
+.btn-danger:hover { background: danger; color: bg; border-color: danger; }
+
+// A button that reads as a link — used for the inline "remove" control on a
+// cross-reference, where a full button would outweigh the row it sits in.
+.btn-link {
+  background: none;
+  border: none;
+  color: textDim;
+  padding: 0 0.3rem;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.btn-link:hover { color: danger; }
+
 // ---- layout --------------------------------------------------------------
 main {
   max-width: 60rem;
@@ -202,14 +218,19 @@ main {
 }
 .verse-num:hover { text-decoration: underline; }
 
-// Marks a verse that has notes or cross-references attached (Phase 2).
+// Marks a verse that has notes or cross-references attached. Deliberately in
+// the warm accent rather than the link blue: the eye should be able to scan a
+// chapter for "where have I been working" without confusing an annotation
+// marker for a verse number.
 .verse-mark {
   font-family: uiFont;
   font-size: 0.7rem;
   color: accentWarm;
   margin-left: 0.3rem;
   vertical-align: 0.35em;
+  text-decoration: none;
 }
+.verse-mark:hover { text-decoration: none; filter: brightness(1.3); }
 
 // ---- verse hub -----------------------------------------------------------
 .verse-hero {
@@ -269,6 +290,212 @@ main {
   color: textDim;
   margin: 1.2rem 0 0.5rem;
 }
+
+// ---- notes, tags, cross-references ---------------------------------------
+// A page header that carries an action on the right (New note, Full editor).
+.page-head {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.25rem;
+}
+.page-head .page-title { margin-bottom: 0; }
+.page-head .btn, .page-head .link-row { margin-left: auto; }
+
+// Chips are the compact form of a reference or a tag. They appear in four
+// different views, so they carry no layout of their own beyond the row.
+.chip-row {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin: 0.3rem 0 0.6rem;
+}
+.chip-row-large { gap: 0.5rem; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid border;
+  border-radius: 1rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  background: bgSunken;
+}
+a.chip:hover { text-decoration: none; border-color: accent; }
+
+.chip-ref { color: accent; }
+.chip-tag { color: accentWarm; }
+.chip-count {
+  font-size: 0.7rem;
+  color: textDim;
+  border-left: 1px solid border;
+  padding-left: 0.35rem;
+}
+
+// One note in a list. The rows share a card, separated by rules rather than
+// by gaps, so a long list reads as one object instead of many.
+.note-row {
+  padding: 0.65rem 0;
+  border-bottom: 1px solid border;
+}
+.note-row:first-child { padding-top: 0; }
+.note-row:last-child { border-bottom: none; padding-bottom: 0; }
+
+.note-title { font-weight: 600; color: textBright; font-size: 1rem; }
+.note-title:hover { color: accent; }
+
+.note-excerpt {
+  margin: 0.2rem 0 0;
+  color: textDim;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+// The rendered Markdown body. Serif and a reading measure, because a note is
+// prose meant to be read next to scripture, not a form field's contents.
+.note-body {
+  font-family: readFont;
+  font-size: 1.06rem;
+  line-height: 1.7;
+  max-width: maxWidth;
+}
+.note-body > *:first-child { margin-top: 0; }
+.note-body > *:last-child { margin-bottom: 0; }
+.note-body h1, .note-body h2, .note-body h3 {
+  font-family: uiFont;
+  color: textBright;
+  margin: 1.2rem 0 0.4rem;
+}
+.note-body h1 { font-size: 1.25rem; }
+.note-body h2 { font-size: 1.1rem; }
+.note-body h3 { font-size: 1rem; }
+.note-body blockquote {
+  margin: 0.8rem 0;
+  padding-left: 0.9rem;
+  border-left: 3px solid border;
+  color: textDim;
+}
+.note-body code {
+  font-family: monoFont;
+  font-size: 0.88rem;
+  background: bgSunken;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+}
+.note-body pre {
+  background: bgSunken;
+  padding: 0.7rem 0.9rem;
+  border-radius: radius;
+  overflow-x: auto;
+}
+.note-body pre code { background: none; padding: 0; }
+// Strong's shortcodes render as ordinary lexicon links; targeting the href is
+// what lets them be styled without the Markdown renderer emitting a class.
+.note-body a[href*="/lexicon/"] {
+  font-family: monoFont;
+  font-size: 0.85rem;
+  color: accentWarm;
+  border-bottom: 1px dotted accentWarm;
+}
+.note-body a[href*="/lexicon/"]:hover { text-decoration: none; }
+
+// ---- note editor ---------------------------------------------------------
+.note-editor { max-width: 46rem; }
+
+.field { display: block; margin-bottom: 1rem; }
+.field-label {
+  display: block;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: textDim;
+  margin-bottom: 0.25rem;
+}
+.field input[type=text], .field textarea { width: 100%; }
+.field textarea {
+  font-family: monoFont;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  resize: vertical;
+}
+.field-hint { display: block; margin-top: 0.25rem; font-size: 0.8rem; color: textDim; }
+
+// A horizontal cluster of controls ending in a submit — the quick-add forms.
+.field-row {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+.field-row input[type=text] { flex: 1 1 12rem; }
+
+// ---- disclosures ---------------------------------------------------------
+// Quick-add, inline edit and delete all hide behind a <details>, which needs
+// no JavaScript and gives keyboard access for free.
+.quick-add, .inline-edit, .danger-zone { margin-top: 0.8rem; }
+.quick-add summary, .inline-edit summary, .danger-zone summary {
+  cursor: pointer;
+  font-size: 0.88rem;
+  color: textDim;
+  padding: 0.25rem 0;
+}
+.quick-add summary:hover, .inline-edit summary:hover { color: accent; }
+.quick-add textarea {
+  width: 100%;
+  font-family: monoFont;
+  font-size: 0.92rem;
+  resize: vertical;
+  margin-top: 0.4rem;
+}
+.inline-edit form { display: flex; gap: 0.4rem; margin-top: 0.4rem; }
+.inline-edit input[type=text] { flex: 1 1 20rem; }
+
+.danger-zone { border-top: 1px solid border; padding-top: 0.6rem; }
+.danger-zone summary:hover { color: danger; }
+.danger-zone .page-sub { margin: 0.4rem 0 0.6rem; }
+
+// ---- scripture inside a note ---------------------------------------------
+.anchor { padding: 0.5rem 0; border-bottom: 1px solid border; }
+.anchor:last-child { border-bottom: none; padding-bottom: 0; }
+.anchor-ref {
+  display: block;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 0.3rem;
+}
+.anchor-text {
+  font-family: readFont;
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: textBright;
+  max-width: maxWidth;
+}
+.verse-inline + .verse-inline { margin-left: 0.3rem; }
+
+// ---- cross-references ----------------------------------------------------
+.xref-group { margin-bottom: 0.7rem; }
+.xref-heading {
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: textDim;
+  font-weight: 600;
+  margin: 0.4rem 0 0.3rem;
+}
+.xref-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+.xref-arrow { color: textDim; font-size: 0.9rem; }
+.xref-ref { font-weight: 600; }
+.xref-comment { color: textDim; font-size: 0.88rem; }
+.xref-delete { margin-left: auto; }
 
 // ---- misc ----------------------------------------------------------------
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1rem; font-size: 0.92rem; }

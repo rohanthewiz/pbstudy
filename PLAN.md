@@ -73,7 +73,7 @@ Layout shell includes ScriptTagger (config before script tag, `DarkTheme: true`,
 ## Implementation phases (each ends browsable)
 
 1. ~~**Skeleton + reader**~~ — **DONE** (see "Phase 1 outcome" below): go mod init, cfg, store/schema (bible), books table, ref parser, downloader, `pbstudy download kjv`, server + layout + stylus + reader + verse hub with BLB links.
-2. **Notes/tags/xrefs**: studyDB, study CRUD, note editor + goldmark + `[[G26]]` links, verse-hub forms, reader indicators, tags browser; verify ScriptTagger in browser.
+2. ~~**Notes/tags/xrefs**~~ — **DONE** (see "Phase 2 outcome" below): study package, note/tag/xref CRUD, note editor + goldmark + `[[G26]]` links, verse-hub quick-add forms, reader indicator dots, tags browser.
 3. **Search + topical study**: scripture ILIKE search, notes search, combined page, ref fast-path; download WEB+ASV, parallel-translation verse hub.
 4. **Sermon builder + AI**: sermons CRUD, outline UI (form round-trips + minimal JS reorder), AssembleOutline, exports, then streaming AI draft.
 5. **Sync**: syncer package, backup route, settings; test with two DataDirs on one machine simulating two hosts.
@@ -136,4 +136,50 @@ web/server.go               routes, render helpers, embedded-JS handler
 assets/assets.go            embed.FS for styles + js
    styles/app.styl          dark reading-first stylesheet
    js/app.js                arrow-key chapter nav, "/" search focus, chapter picker
+```
+
+## Phase 2 outcome (implemented)
+
+**Verified** against a live server on a scratch data dir (31,102 KJV verses): a note created by `POST /notes` with `refs=John 3:16-18; Rom 5:8` derives its title from the body's first line, creates both tags, renders `[[G26]]` as a BLB lexicon link, inlines the KJV text of both anchors, and appears on the verse hub for verses 16, 17 **and** 18 (range containment) plus as reader dots on all three. A cross-reference created from John 3:16 → Romans 5:8 shows as "From here" on John 3:16 and "To here" on Romans 5:8 without being created there. Editing a note to drop an anchor removes the corresponding hub entry and dot; deleting it 404s the permalink, clears its dots, and empties its tag page while leaving the cross-reference intact. `/css/app.css` still compiles. `go build`/`go vet`/`go test`/`gofmt` all clean.
+
+### Deviations from the plan above, and why
+
+- **`element` does not escape anything** — not text passed to `b.T()`, not attribute values. Phase 1's `web/ui/search.go` carried a comment asserting the opposite. Harmless while every rendered string came from the compiled canon or getbible.net; an injection hole the moment notes became user input. Fixed by `web/ui/escape.go` (`esc()`, applied to every string that originated outside the binary) with the rule written down there. Two live holes were found and closed by the fix: a note titled `</title><script>…</script>` broke out of the document `<title>`, and the search page echoed its query unescaped. Scripture bodies are now escaped too — they arrive over the network and were never ours either.
+- **Translations are validated at the handler boundary**, not just defaulted. `/read/:translation/…` 404s an unknown translation and `?t=` falls back to the default, because that value flows into hrefs, a hidden form field and the ScriptTagger config. Escaping it correctly in four places is a worse bet than checking it once.
+- **bytdb rejects a qualified ORDER BY under SELECT DISTINCT** — `ORDER BY n.updated_at` fails with "ORDER BY expressions must appear in select list" even when `n.updated_at` is selected; it matches on the *output* column name. The three DISTINCT queries (`NotesForVerse`, `NotesForChapter`, `NotesForTag`) order by the bare `updated_at`. DISTINCT itself is load-bearing: one note can carry several anchors covering the same verse. Found by the live smoke test, not by the compiler.
+- **`DeleteNote` keeps the note's refs and tag links**, tombstoning only the note row. Every read path joins back to `notes` and filters `deleted_at IS NULL`, so the children are inert rather than stale, and an undelete stays one UPDATE away. `DeleteTag` is the asymmetric case — it *does* remove `note_tags` rows, because a retired tag must stop appearing on notes immediately.
+- **Tag identity is case-folded in Go, not in SQL.** The unique index on `tags.name` is case-sensitive, so "Grace" and "grace" could both be inserted. `writeTagLinks` reads the (tens-of-rows) tag table once per save and matches on a lowercased key, which also avoids escaping LIKE metacharacters out of user-typed tag names.
+- **Note anchors are typed as text**, not picked from selects: the `References` field takes `John 3:16-18; Rom 5:8` through the same parser as the search box (`bible.ParseRefList`). Partial success is deliberate — three good anchors and one typo saves nothing and reports the typo, rather than silently storing two of three.
+- **Destructive actions hide behind `<details>`** rather than a JavaScript `confirm()`: no script, keyboard accessible for free, and two deliberate actions instead of a modal dismissed by reflex.
+- **Every form carries a `return` field**, so the verse hub's quick-adds post to the same `/notes` and `/xrefs` endpoints the full editor uses and come back where they started. `web.safeReturn` rejects protocol-relative, absolute, and backslash/CRLF targets — a local app still serves whatever request arrives.
+- **Added `bible.MaxChapterVerses`** (176, Psalm 119) purely as a clamp when expanding a stored verse range into indicator dots, so a hand-edited row cannot drive an unbounded loop.
+- **Dashboard gained note and cross-reference counts**, shown only once non-zero.
+
+### Not verified
+
+- **ScriptTagger hover popups in a real browser.** The Chrome instance available here cannot reach this machine's localhost (`ERR_CONNECTION_REFUSED` on `localhost` and `127.0.0.1` alike, while curl gets 200 on both), so the popup behaviour was not exercised. What *is* confirmed from the served HTML: the `BLB.Tagger` config precedes the script tag, the reader's scripture container and the note page's Scripture card both carry `blb-no-tag`, and the note body does not — which is the split the integration depends on. Worth a manual look in a browser.
+
+### Phase 2 file map
+
+```
+study/study.go              package doc, UUID ids, UTC clock, IN-list helper
+     notes.go               Note/NoteRef/NoteDraft, CRUD, NotesForVerse/Chapter
+     tags.go                Tag CRUD, on-demand creation, case-folded identity
+     xrefs.go               CrossRef CRUD, both-direction queries, Other()
+     marks.go               ChapterMarks — per-verse indicator counts, one pass
+     markdown.go            goldmark (safe mode) + [[G26]] expansion, Excerpt
+     study_test.go          markdown, excerpt, tag names, range expansion
+bible/ref.go                + ParseRefList / FormatRefList
+     books.go               + MaxChapterVerses
+web/handlers_notes.go       notes CRUD, anchor resolution, editor round-trip
+   handlers_tags.go         tag index, topical page, describe, delete
+   handlers_xrefs.go        xref create/delete, re-render-on-bad-reference
+   support.go               studyUnavailable, safeReturn
+   support_test.go          redirect guard, translation recovery
+   ui/notes.go              list, detail, editor, shared note fragments
+   ui/tags.go               tag index and topical study page
+   ui/escape.go             the escaping rule for the whole ui package
+   ui/verse.go              rewritten: notes, xrefs both ways, quick-add forms
+   ui/reader.go             + indicator dots and chapter-level notes
+assets/styles/app.styl      chips, note rows, editor fields, disclosures, xrefs
 ```

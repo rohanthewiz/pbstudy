@@ -91,13 +91,35 @@ func (s *Server) registerRoutes() error {
 	s.rweb.Get("/search", s.handleSearch)
 	s.rweb.Get("/settings", s.handleSettings)
 
+	// --- notes ------------------------------------------------------------
+	// Every mutation is a POST that ends in a redirect (303), so a refresh
+	// after saving re-renders the note rather than re-submitting the form.
+	// /notes/new is registered before /notes/:id; rweb resolves the static
+	// segment first, so "new" is never read as an id.
+	s.rweb.Get("/notes", s.handleNotes)
+	s.rweb.Get("/notes/new", s.handleNoteNew)
+	s.rweb.Post("/notes", s.handleNoteCreate)
+	s.rweb.Get("/notes/:id", s.handleNoteShow)
+	s.rweb.Get("/notes/:id/edit", s.handleNoteEdit)
+	s.rweb.Post("/notes/:id", s.handleNoteUpdate)
+	s.rweb.Post("/notes/:id/delete", s.handleNoteDelete)
+
+	// --- tags -------------------------------------------------------------
+	// No create route: tags come into being by being typed into a note.
+	s.rweb.Get("/tags", s.handleTags)
+	s.rweb.Get("/tags/:id", s.handleTagShow)
+	s.rweb.Post("/tags/:id/descrip", s.handleTagDescrip)
+	s.rweb.Post("/tags/:id/delete", s.handleTagDelete)
+
+	// --- cross-references -------------------------------------------------
+	// No index page: a cross-reference is only meaningful at one of its ends,
+	// so it is created and removed from the verse hub it belongs to.
+	s.rweb.Post("/xrefs", s.handleXrefCreate)
+	s.rweb.Post("/xrefs/:id/delete", s.handleXrefDelete)
+
 	// Nav destinations whose features land in later phases. Registered as
 	// honest placeholders rather than left to 404 — a nav link that dead-ends
 	// on a generic error page looks like a bug.
-	s.rweb.Get("/notes", s.comingSoon(ui.NavNotes, "Notes",
-		"Notes, tags and cross-references arrive in the next phase."))
-	s.rweb.Get("/tags", s.comingSoon(ui.NavTags, "Tags",
-		"Topical study pages arrive with notes in the next phase."))
 	s.rweb.Get("/sermons", s.comingSoon(ui.NavSermons, "Sermons",
 		"The sermon builder arrives once notes and search are in place."))
 

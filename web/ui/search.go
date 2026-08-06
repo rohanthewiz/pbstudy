@@ -34,8 +34,10 @@ func (s Search) Render(b *element.Builder) (x any) {
 		return
 	}
 
+	// The query is echoed back to the user, so it is escaped like any other
+	// text that came in over the wire.
 	b.PClass("page-sub").F("%d result(s) for %q in %s",
-		len(s.Results), s.Query, upper(s.Translation))
+		len(s.Results), esc(s.Query), upper(s.Translation))
 
 	if len(s.Results) == 0 {
 		b.PClass("empty").T("No verses matched. Try a shorter phrase.")
@@ -72,11 +74,11 @@ func shortRef(ref bible.Ref) string {
 //
 // Two properties worth stating, because both are easy to get wrong:
 //
-//  1. No raw HTML is ever injected. The surrounding text and the matched text
-//     both go through b.T(), which escapes, and the <mark> tags come from the
-//     builder. A query of "<script>" therefore highlights literally rather
-//     than executing — the obvious strings.Replace-into-a-string version of
-//     this function is an injection hole.
+//  1. Matching happens on the raw strings, but every fragment is escaped on
+//     its way out (see esc). Escaping AFTER the match is what keeps the
+//     offsets honest: escaping first would turn a searched-for "&" into
+//     "&amp;" and the index arithmetic below would slice through the middle of
+//     an entity. A query of "<script>" therefore highlights literally.
 //
 //  2. Matching is done on lowercased copies, then sliced out of the ORIGINAL
 //     body so the match keeps its real casing. That only works while
@@ -88,20 +90,20 @@ func highlight(b *element.Builder, body, q string) (x any) {
 	lowerQ := strings.ToLower(q)
 
 	if q == "" || len(lowerBody) != len(body) || len(lowerQ) != len(q) {
-		b.T(body)
+		b.T(esc(body))
 		return
 	}
 
 	for {
 		i := strings.Index(lowerBody, lowerQ)
 		if i < 0 {
-			b.T(body)
+			b.T(esc(body))
 			return
 		}
 		if i > 0 {
-			b.T(body[:i])
+			b.T(esc(body[:i]))
 		}
-		b.Ele("mark").T(body[i : i+len(q)])
+		b.Ele("mark").T(esc(body[i : i+len(q)]))
 
 		body = body[i+len(q):]
 		lowerBody = lowerBody[i+len(q):]

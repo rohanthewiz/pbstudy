@@ -4,9 +4,11 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/rohanthewiz/logger"
 	"github.com/rohanthewiz/rweb"
 
 	"github.com/rohanthewiz/pbstudy/bible"
+	"github.com/rohanthewiz/pbstudy/study"
 	"github.com/rohanthewiz/pbstudy/web/ui"
 )
 
@@ -38,6 +40,11 @@ func (s *Server) handleDashboard(ctx rweb.Context) error {
 		count, _ = bible.CountVerses(s.store.Bible, translation)
 	}
 
+	// Same reasoning for the study counts: they are a status line, not the
+	// page's reason for existing.
+	noteCount, _ := study.CountNotes(s.store.Study)
+	xrefCount, _ := study.CountXrefs(s.store.Study)
+
 	return s.render(ctx, ui.Page{
 		Title:       "",
 		Active:      ui.NavRead,
@@ -46,6 +53,8 @@ func (s *Server) handleDashboard(ctx rweb.Context) error {
 			Translation:  translation,
 			Translations: downloaded,
 			VerseCount:   count,
+			NoteCount:    noteCount,
+			XrefCount:    xrefCount,
 		},
 	})
 }
@@ -89,7 +98,16 @@ func (s *Server) handleReadGo(ctx rweb.Context) error {
 // handleRead renders one chapter.
 func (s *Server) handleRead(ctx rweb.Context) error {
 	req := ctx.Request()
+
+	// Validate the translation against the known set before it goes anywhere.
+	// It arrives as a URL path segment and then flows into hrefs, a hidden
+	// form field and the ScriptTagger config; checking it once here is worth
+	// more than escaping it correctly in four places.
 	translation := req.Param("translation")
+	if !bible.IsKnownTranslation(translation) {
+		return s.notFound(ctx, "There is no translation called "+
+			strconv.Quote(translation)+". Try kjv, web or asv.")
+	}
 
 	bookNum, err := strconv.Atoi(req.Param("book"))
 	if err != nil {
@@ -116,6 +134,21 @@ func (s *Server) handleRead(ctx rweb.Context) error {
 		downloaded = nil // the switcher simply hides; the chapter still renders
 	}
 
+	// The user's own annotations. A failure here is degraded, not fatal: the
+	// chapter is still readable without its indicator dots, and refusing to
+	// show scripture because the notes database hiccuped would be the wrong
+	// trade in a reading app.
+	marks, err := study.ChapterMarks(s.store.Study, bookNum, chapter)
+	if err != nil {
+		logger.LogErr(err, "cannot load chapter marks",
+			"book", bk.Name, "chapter", strconv.Itoa(chapter))
+		marks = nil
+	}
+	chapterNotes, err := study.NotesForChapter(s.store.Study, bookNum, chapter)
+	if err != nil {
+		chapterNotes = nil
+	}
+
 	return s.render(ctx, ui.Page{
 		Title:       bk.Name + " " + strconv.Itoa(chapter),
 		Active:      ui.NavRead,
@@ -128,6 +161,8 @@ func (s *Server) handleRead(ctx rweb.Context) error {
 			Verses:       verses,
 			Prev:         s.prevChapter(translation, bk, chapter),
 			Next:         s.nextChapter(translation, bk, chapter),
+			Marks:        marks,
+			ChapterNotes: chapterNotes,
 		},
 	})
 }
@@ -195,20 +230,53 @@ func (s *Server) handleVerse(ctx rweb.Context) error {
 		return s.notFound(ctx, "Verse must be a positive number.")
 	}
 
-	renderings, err := bible.AllTranslationsOf(s.store.Bible, bookNum, chapter, verse)
+	// The translation to return to. Honour ?t= when the reader linked here,
+	// otherwise fall back to whatever is downloaded. An unrecognized value
+	// falls back rather than 404s: the hub shows every translation anyway, so
+	// a bad ?t= costs only the "back to chapter" link's version.
+	readTranslation := req.QueryParam("t")
+	if !bible.IsKnownTranslation(readTranslation) {
+		readTranslation = s.defaultTranslation()
+	}
+
+	return s.renderVerseHub(ctx, bk, chapter, verse, readTranslation, "")
+}
+
+// renderVerseHub assembles and renders the verse hub.
+//
+// Split out from handleVerse because two paths land on this page: a plain GET,
+// and a rejected quick-add that has to re-render the page with a complaint
+// instead of redirecting (see verseHubWithProblem). Sharing the assembly is
+// what keeps the second path from becoming a thinner, subtly different hub.
+func (s *Server) renderVerseHub(ctx rweb.Context, bk *bible.Book,
+	chapter, verse int, readTranslation, problem string) error {
+
+	renderings, err := bible.AllTranslationsOf(s.store.Bible, bk.Num, chapter, verse)
 	if err != nil {
 		return s.renderError(ctx, http.StatusInternalServerError,
 			"Cannot read verse", "The scripture database could not be queried.", err)
 	}
 
-	// The translation to return to. Honour ?t= when the reader linked here,
-	// otherwise fall back to whatever is downloaded.
-	readTranslation := req.QueryParam("t")
-	if readTranslation == "" {
-		readTranslation = s.defaultTranslation()
+	// Everything below is the user's own data. Each read degrades on its own
+	// rather than taking the page down — the verse itself is the reason to be
+	// here, and it has already loaded.
+	notes, err := study.NotesForVerse(s.store.Study, bk.Num, chapter, verse)
+	if err != nil {
+		logger.LogErr(err, "cannot load notes for verse", "book", bk.Name,
+			"chapter", strconv.Itoa(chapter), "verse", strconv.Itoa(verse))
+		notes = nil
 	}
+	xrefsOut, err := study.XrefsFrom(s.store.Study, bk.Num, chapter, verse)
+	if err != nil {
+		xrefsOut = nil
+	}
+	xrefsIn, err := study.XrefsTo(s.store.Study, bk.Num, chapter, verse)
+	if err != nil {
+		xrefsIn = nil
+	}
+	knownTags, _ := study.ListTags(s.store.Study)
 
-	ref := bible.Ref{BookNum: bookNum, Chapter: chapter, VerseStart: verse, VerseEnd: verse}
+	ref := bible.Ref{BookNum: bk.Num, Chapter: chapter, VerseStart: verse, VerseEnd: verse}
 
 	return s.render(ctx, ui.Page{
 		Title:       ref.String(),
@@ -220,6 +288,11 @@ func (s *Server) handleVerse(ctx rweb.Context) error {
 			Verse:           verse,
 			Renderings:      renderings,
 			ReadTranslation: readTranslation,
+			Notes:           notes,
+			XrefsOut:        xrefsOut,
+			XrefsIn:         xrefsIn,
+			KnownTags:       knownTags,
+			Problem:         problem,
 		},
 	})
 }

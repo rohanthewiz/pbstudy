@@ -5,6 +5,7 @@ import (
 
 	"github.com/rohanthewiz/pbstudy/bible"
 	"github.com/rohanthewiz/pbstudy/blb"
+	"github.com/rohanthewiz/pbstudy/study"
 )
 
 // ChapterLink is a prev/next target, precomputed by the handler so the view
@@ -25,6 +26,15 @@ type Reader struct {
 	Next         ChapterLink
 	// FocusVerse, when non-zero, is scrolled to via the URL fragment.
 	FocusVerse int
+	// Marks is what the user has attached to each verse of this chapter,
+	// keyed by verse number, with study.ChapterVerseKey holding anything
+	// attached to the chapter as a whole. Precomputed by the handler in one
+	// query so rendering a verse costs a map lookup, not a round trip.
+	Marks map[int]study.Marks
+	// ChapterNotes are notes anchored to the whole chapter rather than to a
+	// verse in it. They have nowhere to hang in the verse flow, so they get
+	// their own card above the text.
+	ChapterNotes []study.Note
 }
 
 func (r Reader) Render(b *element.Builder) (x any) {
@@ -45,6 +55,8 @@ func (r Reader) Render(b *element.Builder) (x any) {
 		return
 	}
 
+	r.renderChapterNotes(b)
+
 	// The scripture container is excluded from ScriptTagger. We already
 	// render every verse with its own number, anchor, and BLB link; letting
 	// the tagger re-scan this text would double-link the whole chapter.
@@ -58,7 +70,8 @@ func (r Reader) Render(b *element.Builder) (x any) {
 				b.AClass("verse-num",
 					"href", VerseURL(v.BookNum, v.Chapter, v.Num)+"?t="+r.Translation,
 					"title", "Open verse hub").T(itoa(v.Num)),
-				b.T(v.Body),
+				b.T(esc(v.Body)),
+				r.renderMarks(b, v.Num),
 			)
 		}),
 	)
@@ -68,6 +81,57 @@ func (r Reader) Render(b *element.Builder) (x any) {
 			blb.ChapterURL(r.Translation, r.Book.Num, r.Chapter),
 			"target", "_blank", "rel", "noopener").
 			F("This chapter on Blue Letter Bible"),
+	)
+	return
+}
+
+// renderMarks draws the indicator that a verse has notes or cross-references
+// attached.
+//
+// It is a link to the verse hub rather than a decoration, because "I see there
+// is something here" and "show me what is here" are the same impulse one
+// motion apart. The glyphs are text (a pencil and a link) rather than images
+// or CSS shapes so they inherit the reading colour and scale with the text.
+func (r Reader) renderMarks(b *element.Builder, verse int) (x any) {
+	m := r.Marks[verse]
+	if !m.Any() {
+		return
+	}
+
+	label := ""
+	glyph := ""
+	if m.Notes > 0 {
+		glyph += "✎"
+		label = Plural(m.Notes, "note")
+	}
+	if m.Xrefs > 0 {
+		glyph += "⁂"
+		if label != "" {
+			label += ", "
+		}
+		label += Plural(m.Xrefs, "cross-reference")
+	}
+
+	b.AClass("verse-mark",
+		"href", VerseURL(r.Book.Num, r.Chapter, verse)+"?t="+r.Translation,
+		"title", esc(label)).T(glyph)
+	return
+}
+
+// renderChapterNotes shows notes anchored to the chapter itself.
+//
+// Rendered before the scripture rather than after: a chapter-level note is
+// usually context or an outline the user wrote to read the chapter *with*, so
+// burying it below 40 verses would defeat the purpose.
+func (r Reader) renderChapterNotes(b *element.Builder) (x any) {
+	if len(r.ChapterNotes) == 0 {
+		return
+	}
+	b.DivClass("card").R(
+		b.H2().F("Notes on %s %d", esc(r.Book.Name), r.Chapter),
+		element.ForEach(r.ChapterNotes, func(n study.Note) {
+			renderNoteSummary(b, n)
+		}),
 	)
 	return
 }

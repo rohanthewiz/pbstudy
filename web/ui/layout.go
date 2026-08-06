@@ -55,7 +55,12 @@ func (p Page) Render(b *element.Builder) (x any) {
 		b.Head().R(
 			b.Meta("charset", "utf-8"),
 			b.Meta("name", "viewport", "content", "width=device-width, initial-scale=1"),
-			b.Title().T(title),
+			// <title> is RCDATA, so most markup inside it is inert — but
+			// a literal "</title>" still closes the element and anything
+			// after it lands in the document. Page titles carry note
+			// titles and search queries, so this escape is load-bearing,
+			// not belt-and-braces.
+			b.Title().T(esc(title)),
 			b.Link("rel", "stylesheet", "href", "/css/app.css"),
 
 			// ScriptTagger reads BLB.Tagger when it executes, so the config
@@ -119,8 +124,14 @@ func (p Page) renderHeader(b *element.Builder, translation string) (x any) {
 
 		// A GET form so a search is a bookmarkable URL. The translation
 		// rides along hidden so results stay in the version being read.
+		//
+		// The translation reaches here from a URL path segment. Handlers
+		// validate it against the known set, so this escape is the second
+		// line rather than the first — but an attribute value built from
+		// anything that came off the wire gets escaped regardless of who
+		// promised to have checked it.
 		b.FormClass("header-search", "method", "get", "action", "/search").R(
-			b.Input("type", "hidden", "name", "translation", "value", translation),
+			b.Input("type", "hidden", "name", "translation", "value", esc(translation)),
 			b.Input("type", "search", "name", "q", "placeholder", "Search or go to John 3:16",
 				"data-search-input", "1", "autocomplete", "off"),
 			b.Button("type", "submit").T("Go"),

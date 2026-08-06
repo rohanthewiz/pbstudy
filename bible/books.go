@@ -14,6 +14,13 @@ const (
 	NewTestament = "NT"
 )
 
+// MaxChapterVerses is the verse count of the longest chapter in scripture
+// (Psalm 119). It is a sanity bound, not a lookup table: code that expands a
+// stored verse range clamps to it so a hand-edited URL or a corrupt row cannot
+// ask for an unbounded loop. Real per-chapter verse counts come from the
+// scripture cache, not from here.
+const MaxChapterVerses = 176
+
 // Book describes one book of the 66-book Protestant canon.
 //
 // Four different naming systems meet here, which is exactly why this table

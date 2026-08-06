@@ -27,8 +27,10 @@ func (s *Server) handleSearch(ctx rweb.Context) error {
 	req := ctx.Request()
 	q := strings.TrimSpace(req.QueryParam("q"))
 
+	// Validated, not merely defaulted: this value is reflected into the page
+	// and into every result link, and it arrives from a query string.
 	translation := req.QueryParam("translation")
-	if translation == "" {
+	if !bible.IsKnownTranslation(translation) {
 		translation = s.defaultTranslation()
 	}
 

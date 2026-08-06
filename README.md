@@ -6,9 +6,10 @@ Track notes and correlations between scriptures, study topics, and assemble
 sermons and teachings from what you have collected. Scripture is cached
 locally, so study works with the network off.
 
-> **Status: Phase 1 of 5.** The scripture cache, chapter reader, verse hub and
-> search are working. Notes, tags, cross-references, the sermon builder and
-> file-sync are still to come — see [Roadmap](#roadmap) and [PLAN.md](PLAN.md).
+> **Status: Phase 2 of 5.** The scripture cache, chapter reader, verse hub,
+> search, notes, tags and cross-references are working. Notes search, the
+> sermon builder and file-sync are still to come — see [Roadmap](#roadmap) and
+> [PLAN.md](PLAN.md).
 
 ---
 
@@ -87,14 +88,53 @@ export, or a backup, and the drafting UI is hidden entirely when it is unset.
 ### Getting around
 
 - `/` — the whole canon as a grid
-- `/read/:translation/:book/:chapter` — the reader (← / → page through chapters)
+- `/read/:translation/:book/:chapter` — the reader (← / → page through
+  chapters). A verse with notes or cross-references carries a marker you can
+  click straight through to.
 - `/verse/:book/:chapter/:verse` — the verse hub: every translation at once,
+  the notes and cross-references attached to that verse, forms to add more,
   plus links into Blue Letter Bible's interlinear and lexicon
+- `/notes` — everything you have written, most recently edited first
+- `/tags/:id` — a topic: every note carrying that tag, whatever passage each
+  one is anchored to
 - `/search?q=` — press `/` from anywhere to jump to the search box
 
 The search box does double duty. Type a phrase and it scans the scripture text;
 type a reference and it takes you straight there. `John 3:16`, `1 Jn 2:1`,
 `II Corinthians 5:17`, `Ps 23`, `Jude 3` and `Gen. 1:1` all parse.
+
+### Writing notes
+
+A note is Markdown anchored to one or more passages. Anchors are typed, not
+picked from menus — the References field takes the same references the search
+box does, several at a time:
+
+```
+John 3:16-18; Rom 5:8; Ps 23
+```
+
+A range anchors to every verse in it, so a note on `John 3:16-18` surfaces
+while you are reading verse 17. A chapter on its own (`John 3`) anchors to the
+chapter and appears above the text rather than beside a verse.
+
+Two more things happen inside a note body:
+
+- `[[G26]]` and `[[H430]]` become Blue Letter Bible lexicon links — Greek and
+  Hebrew corpora are chosen from the prefix letter.
+- Scripture references you type get BLB's hover popups. Scripture *we* render
+  does not, so the verses in the reader keep our own links instead of being
+  double-linked.
+
+Tags are created by typing them. There is no tag manager to visit first: put
+`Grace, Covenant` in a note's tag field and both exist, and `/tags/…` becomes
+a topical study collecting every note that carries one.
+
+Cross-references are drawn from the verse hub and shown from both ends. A link
+you record from Romans while studying Paul is waiting for you in Genesis when
+you get there.
+
+Nothing is erased. Deleting a note or a tag retires it with a tombstone, which
+is what lets the deletion travel to your other machines once sync lands.
 
 ---
 
@@ -154,8 +194,8 @@ is the useful half of the behaviour without the double-linking.
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 1 | Scripture cache, reader, verse hub, search | **done** |
-| 2 | Notes, tags, cross-references, Strong's shortcodes | next |
-| 3 | Notes search, combined scope, topical study pages | planned |
+| 2 | Notes, tags, cross-references, Strong's shortcodes | **done** |
+| 3 | Notes search, combined scope, topical study pages | next |
 | 4 | Sermon outline builder, Markdown/HTML export, AI drafting | planned |
 | 5 | File-based sync across machines, backups, settings | planned |
 
@@ -191,7 +231,8 @@ PBSTUDY_DATA_DIR=/tmp/pbstudy-dev go run . serve
 [go-styl](https://github.com/rohanthewiz/go-styl) ·
 [bytdb](https://github.com/rohanthewiz/bytdb) ·
 [serr](https://github.com/rohanthewiz/serr) ·
-[logger](https://github.com/rohanthewiz/logger)
+[logger](https://github.com/rohanthewiz/logger) ·
+[goldmark](https://github.com/yuin/goldmark)
 
 Scripture text from [getbible.net](https://getbible.net).
 

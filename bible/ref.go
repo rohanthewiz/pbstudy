@@ -167,3 +167,52 @@ func LooksLikeRef(s string) (Ref, bool) {
 	ref, err := ParseRef(s)
 	return ref, err == nil
 }
+
+// ParseRefList parses a semicolon- or comma-separated list of references, as
+// typed into the note editor's "References" field:
+//
+//	John 3:16-18; Rom 5:8; Ps 23
+//
+// It returns the references that parsed and the raw text of the ones that did
+// not, in the order they were written. Partial success is the point: a note
+// with three good anchors and one typo should save the three and tell the user
+// about the one, not refuse the whole save and make them retype the lot.
+//
+// Semicolons are tried first because commas appear inside references
+// themselves in some citation styles; a list separated by either works, but a
+// list separated by both is read as semicolon-delimited.
+func ParseRefList(s string) (refs []Ref, rejected []string) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+
+	sep := ","
+	if strings.Contains(s, ";") {
+		sep = ";"
+	}
+
+	for _, part := range strings.Split(s, sep) {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		ref, err := ParseRef(part)
+		if err != nil {
+			rejected = append(rejected, part)
+			continue
+		}
+		refs = append(refs, ref)
+	}
+	return refs, rejected
+}
+
+// FormatRefList renders references back into the form ParseRefList accepts, so
+// the note editor can round-trip what it stored.
+func FormatRefList(refs []Ref) string {
+	parts := make([]string, 0, len(refs))
+	for _, r := range refs {
+		parts = append(parts, r.String())
+	}
+	return strings.Join(parts, "; ")
+}

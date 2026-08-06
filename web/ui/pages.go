@@ -16,6 +16,10 @@ type Dashboard struct {
 	Translation  string
 	Translations []bible.Translation
 	VerseCount   int
+	// NoteCount and XrefCount summarise the study database — the half of the
+	// storage that cannot be re-downloaded, so it is worth seeing on arrival.
+	NoteCount int
+	XrefCount int
 }
 
 func (d Dashboard) Render(b *element.Builder) (x any) {
@@ -32,8 +36,21 @@ func (d Dashboard) Render(b *element.Builder) (x any) {
 			b.T("Everything after that works offline."),
 		)
 	} else {
-		b.PClass("page-sub").F("%s · %d verses cached",
-			upper(d.Translation), d.VerseCount)
+		b.PClass("page-sub").R(
+			b.F("%s · %d verses cached", upper(d.Translation), d.VerseCount),
+			b.Wrap(func() {
+				// Only mention the study database once there is something in
+				// it. "0 notes" on a fresh install is a reproach, not a
+				// status line.
+				if d.NoteCount == 0 && d.XrefCount == 0 {
+					return
+				}
+				b.T(" · ")
+				b.A("href", "/notes").T(Plural(d.NoteCount, "note"))
+				b.T(" · ")
+				b.T(Plural(d.XrefCount, "cross-reference"))
+			}),
+		)
 	}
 
 	d.renderBooks(b, bible.OldTestament, "Old Testament")
