@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"time"
 
 	"github.com/rohanthewiz/element"
 	"github.com/rohanthewiz/logger"
@@ -28,6 +29,18 @@ type Server struct {
 	cfg   cfg.Config
 	store *store.Store
 	rweb  *rweb.Server
+	// drafts is the only mutable server-wide state: which sermons are being
+	// drafted right now, so a reconnecting EventSource cannot start a second
+	// generation for the same one. See drafts.go.
+	drafts *draftJobs
+	// aiEndpoint overrides the Anthropic API URL. Empty everywhere but the
+	// end-to-end drafting test; see Server.draftClient.
+	aiEndpoint string
+	// draftStall is how long a draft event waits for the browser before the
+	// generator concludes it has gone. Per-server rather than a package
+	// variable so a test can shorten its own server's without racing another
+	// server's in-flight goroutines. See defaultDraftStall.
+	draftStall time.Duration
 }
 
 // New builds the server and registers all routes.
@@ -39,6 +52,8 @@ func New(conf cfg.Config, st *store.Store) (*Server, error) {
 			Address: conf.Address(),
 			Verbose: true,
 		}),
+		drafts:     newDraftJobs(),
+		draftStall: defaultDraftStall,
 	}
 
 	s.rweb.Use(rweb.RequestInfo)
@@ -117,11 +132,29 @@ func (s *Server) registerRoutes() error {
 	s.rweb.Post("/xrefs", s.handleXrefCreate)
 	s.rweb.Post("/xrefs/:id/delete", s.handleXrefDelete)
 
-	// Nav destinations whose features land in later phases. Registered as
-	// honest placeholders rather than left to 404 — a nav link that dead-ends
-	// on a generic error page looks like a bug.
-	s.rweb.Get("/sermons", s.comingSoon(ui.NavSermons, "Sermons",
-		"The sermon builder arrives once notes and search are in place."))
+	// --- sermons ----------------------------------------------------------
+	// Outline sections are addressed by their own id rather than their
+	// position, so a button clicked on a page that has since been reordered
+	// still moves the row it was rendered against — see study.Section.ID.
+	s.rweb.Get("/sermons", s.handleSermons)
+	s.rweb.Post("/sermons", s.handleSermonCreate)
+	s.rweb.Get("/sermons/:id", s.handleSermonShow)
+	s.rweb.Post("/sermons/:id", s.handleSermonRename)
+	s.rweb.Post("/sermons/:id/delete", s.handleSermonDelete)
+
+	s.rweb.Post("/sermons/:id/sections", s.handleSectionAdd)
+	s.rweb.Post("/sermons/:id/sections/:sectionId/move", s.handleSectionMove)
+	s.rweb.Post("/sermons/:id/sections/:sectionId/delete", s.handleSectionDelete)
+
+	s.rweb.Get("/sermons/:id/export.md", s.handleSermonExportMD)
+	s.rweb.Get("/sermons/:id/export.html", s.handleSermonExportHTML)
+
+	// Drafting is two requests on purpose: the POST validates and redirects,
+	// and the generation starts when the browser opens the stream. One
+	// request, one goroutine, one channel — so no event is produced before
+	// there is a reader for it. See handleSermonDraftStream.
+	s.rweb.Post("/sermons/:id/draft", s.handleSermonDraft)
+	s.rweb.Get("/sermons/:id/draft/stream", s.handleSermonDraftStream)
 
 	return nil
 }
@@ -191,19 +224,5 @@ func (s *Server) notFound(ctx rweb.Context, detail string) error {
 	return s.renderError(ctx, http.StatusNotFound, "Not found", detail, nil)
 }
 
-// comingSoon builds a placeholder handler for a nav destination whose feature
-// is not implemented yet.
-func (s *Server) comingSoon(nav, title, detail string) rweb.Handler {
-	return func(ctx rweb.Context) error {
-		return s.render(ctx, ui.Page{
-			Title:       title,
-			Active:      nav,
-			Translation: s.defaultTranslation(),
-			Body: ui.ErrorPage{
-				Status:  http.StatusOK,
-				Heading: title,
-				Detail:  detail,
-			},
-		})
-	}
-}
+// The comingSoon placeholder handler that stood in for /sermons is gone: every
+// nav destination now resolves to a real page.

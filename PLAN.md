@@ -75,7 +75,7 @@ Layout shell includes ScriptTagger (config before script tag, `DarkTheme: true`,
 1. ~~**Skeleton + reader**~~ — **DONE** (see "Phase 1 outcome" below): go mod init, cfg, store/schema (bible), books table, ref parser, downloader, `pbstudy download kjv`, server + layout + stylus + reader + verse hub with BLB links.
 2. ~~**Notes/tags/xrefs**~~ — **DONE** (see "Phase 2 outcome" below): study package, note/tag/xref CRUD, note editor + goldmark + `[[G26]]` links, verse-hub quick-add forms, reader indicator dots, tags browser.
 3. ~~**Search + topical study**~~ — **DONE** (see "Phase 3 outcome" below): scripture ILIKE search, notes search, combined page, ref fast-path; download WEB+ASV, parallel-translation verse hub.
-4. **Sermon builder + AI**: sermons CRUD, outline UI (form round-trips + minimal JS reorder), AssembleOutline, exports, then streaming AI draft.
+4. ~~**Sermon builder + AI**~~ — **DONE** (see "Phase 4 outcome" below): sermons CRUD, outline UI (form round-trips), AssembleOutline, exports, streaming AI draft.
 5. **Sync**: syncer package, backup route, settings; test with two DataDirs on one machine simulating two hosts.
 
 Then `git init` + initial commit (user said data should sync; repo hosting is his call later).
@@ -86,7 +86,7 @@ Then `git init` + initial commit (user said data should sync; repo hosting is hi
 - P1: `SELECT COUNT(*) FROM verses` ≈ 31,102 after KJV download; `curl localhost:8000/read/kjv/43/3 | grep Nicodemus`; `/css/app.css` → 200+ETag, then 304.
 - P2: curl-create a note anchored to John 3:16 → appears on verse hub + reader dot; xref both directions; browser hover-popup on a reference inside a note.
 - P3: `/search?q=love&scope=scripture` returns hits <100ms; `/search?q=John+3:16` → verse hub.
-- P4: export.md contains verse text verbatim; with key: watch SSE stream, kill mid-stream (no goroutine leak); without key: button absent.
+- P4: export.md contains verse text verbatim; with key: watch SSE stream, kill mid-stream (no goroutine leak); without key: button absent. **All three verified** — the mid-stream kill and the framing are covered offline by `web/draft_stream_test.go` against a stand-in API, since no API key was available in the implementing session.
 - P5: two-instance round-trip — create on A → appears on B; edit on B wins on A; tombstone propagates; live `.bytdb` never appears in sync dir; a backup snapshot opens in a fresh DataDir.
 
 ## Risks / verify-at-implementation
@@ -280,4 +280,123 @@ web/handlers_search.go      rewritten: scopes, two fast-path rules, one render e
    ui/tags.go               + passage list on the topical page
    ui/layout.go             + Search in the nav
 assets/styles/app.styl      search form, scope tabs, result groups, <mark>
+```
+
+## Phase 4 outcome (implemented)
+
+**Verified** against a live server holding all three translations and the
+seeded study data: a sermon is created from the index, its outline takes
+headings, points, passages and notes, sections reorder with the arrows and
+survive a stale page, `export.md` inlines John 3:16-18 and Romans 5:8 verbatim
+from the KJV cache with a note's body and anchors underneath its title,
+`export.html` is a self-contained document with no external references, the
+dashboard counts sermons, and a hostile sermon title is escaped in the builder,
+in the index, in the HTML export and in the download filename. With no API key
+the drafting controls are absent and the stream endpoint answers 200 with a
+`fail` event explaining why; with a key set, the request reaches
+api.anthropic.com, is accepted as well-formed, and its rejection message is
+surfaced to the browser verbatim. `go build` / `go vet` / `go test -race` /
+`gofmt` all clean.
+
+### Deviations from the plan above, and why
+
+- **Drafting is POST-then-stream, and the generation starts in the stream.**
+  The plan had `POST /sermons/:id/draft` start the work and
+  `GET /sermons/:id/draft/stream` read it, which races: the generator produces
+  events before the browser has connected, so they are either buffered
+  indefinitely or lost. Instead the POST validates and redirects to
+  `?draft=1`, and generation begins when the EventSource connects — one
+  request, one goroutine, one channel, and no event that predates its reader.
+- **Every stream rejection is a 200 carrying a `fail` event**, not an HTTP
+  status. An EventSource cannot read a status line or a response body, so a 404
+  from this endpoint reaches the browser as a bare connection error and shows
+  the user nothing at all.
+- **The SSE event for a failure is named `fail`, not `error`.** EventSource
+  dispatches its own connection failures as an `error` event, so a server-sent
+  one would arrive at the same handler and be indistinguishable from the socket
+  dropping.
+- **Draft fragments travel as JSON, not as raw text.** rweb writes an event as
+  `event: <name>\ndata: <payload>\n\n`, and a sermon draft is mostly
+  newlines — a raw paragraph break would terminate the frame mid-word and hand
+  the browser a corrupt stream. `web/drafts_test.go` pins this.
+- **Outline sections carry their own ids.** The plan described the outline as
+  an ordered JSONB array, which invites addressing sections by index; a Move-up
+  button rendered against position 3 would then move whatever *now* sits at
+  position 3 if the outline changed in another tab. Sections are addressed by a
+  UUID minted on append, so a stale click either finds its section wherever it
+  drifted to or reports that it is gone.
+- **No JavaScript reorder.** The plan allowed "minimal JS reorder"; the up/down
+  buttons are plain single-button POST forms, which work with JavaScript
+  disabled, are keyboard-accessible for free, and needed no new endpoint. The
+  only JavaScript Phase 4 adds is the draft stream reader, which genuinely
+  cannot be done in HTML.
+- **A whole-chapter passage is capped at 60 inlined verses**, and the cap is
+  stated in the document. A chapter section is legitimate — a preacher working
+  through Romans 8 wants the chapter — but Psalm 119 is 176 verses, and pasting
+  it into a two-page outline (and into an AI prompt) helps nobody.
+- **Missing material is marked in the document, never fatal.** A deleted note
+  or an uncached passage becomes an italic marker rather than failing the
+  assembly, because the same document goes to a model that must not invent the
+  missing text and to a preacher who needs to know what to go and fix.
+- **`ai` errors carry two messages.** serr's user-message channel holds one
+  sentence for the person waiting on a draft while `Error()` stays the
+  developer's string, so the log gets the status, type and endpoint and the
+  browser gets "credit balance is too low". Those two are not the same audience
+  and a single message serves neither.
+- **`bible.Ref` gained JSON tags.** A Ref is now persisted inside a sermon
+  outline and will travel in the Phase 5 sync files, so its wire names are
+  pinned in lower camel case rather than left to Go's field capitalisation.
+  `Section.Ref` is tagged `omitzero`, not `omitempty` — the latter has no
+  effect on a struct value and would write a zero Ref into every heading.
+- **The `comingSoon` placeholder handler is gone.** Every nav destination now
+  resolves to a real page.
+- **The dashboard counts sermons**, on the same terms as notes and
+  cross-references: only once at least one exists.
+
+### The disconnect problem, and how it is solved
+
+rweb's SSE loop detects a client disconnect and returns, but it exposes no
+channel, context or callback to tell the producing goroutine — so a generator
+that keeps sending would block forever on a channel nobody drains. The signal
+used instead is the send itself: events go through a buffered channel
+(`draftBuffer` = 256) with a timed send, and a send that cannot complete within
+`Server.draftStall` (45 s) means the reader has gone. The generator then stops,
+saves whatever was produced — those tokens were paid for either way — and
+releases its claim on the sermon. The timeout fires at most once per draft, so
+a departed reader costs one wait rather than one per event.
+
+`Server.draftStall` is a per-server field rather than a package variable
+specifically so a test can shorten its own server's timeout without racing
+another server's in-flight goroutines; an earlier package-level `var` failed
+`go test -race` for exactly that reason.
+
+### Verified end to end without an API key
+
+`web/draft_stream_test.go` runs the real server on a real socket with a local
+stand-in for the Messages API (`Server.aiEndpoint`, the one test seam), and
+covers what unit tests cannot: that rweb writes the frames this app expects,
+that a newline-heavy draft survives the wire intact, that a second EventSource
+is refused rather than starting a parallel generation, and that a reader
+walking away mid-draft leaves the partial saved and the sermon claimable again.
+
+### Phase 4 file map
+
+```
+study/sermons.go            Sermon/Section model, CRUD, outline mutation under tx
+     outline.go             AssembleOutline, resolveOutline, pure formatOutline
+     export.go              ExportHTML (self-contained), FileSlug
+     outline_test.go        document format, decode tolerance, slug allow-list
+     notes.go               + NotesByIDs
+ai/draft.go                 Anthropic Messages streaming client (net/http only)
+  draft_test.go             SSE parsing, request shape, every error path
+web/handlers_sermons.go     CRUD, sections, exports, draft + stream
+   drafts.go                draftJobs registry, runDraft, SSE framing
+   drafts_test.go           one-line framing, stall detector, claim-once
+   draft_stream_test.go     end-to-end over a socket against a stand-in API
+   server.go                + sermon routes, drafts registry, draftStall
+   ui/sermon.go             SermonsList, SermonBuilder, OutlineRow
+   ui/sermon_test.go        escaping, AI-off rendering, stream panel contract
+bible/ref.go                + JSON tags on Ref (sync-facing wire names)
+assets/js/app.js            + EventSource draft reader
+assets/styles/app.styl      + outline rows, add forms, draft panel
 ```

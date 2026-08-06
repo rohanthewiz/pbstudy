@@ -308,6 +308,40 @@ func RefsAcross(notes []Note) []bible.Ref {
 	return out
 }
 
+// NotesByIDs loads the named live notes, keyed by id.
+//
+// Returns a map rather than a slice because every caller is resolving
+// references that may have gone stale: the sermon assembler walks an outline
+// whose note sections can point at notes since deleted, and a map answers
+// "is this one still here" without a scan. Ids that no longer resolve are
+// simply absent — the caller decides what a missing note means.
+func NotesByIDs(db *sql.DB, ids []string) (map[string]Note, error) {
+	out := map[string]Note{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+
+	list, args := placeholders(ids)
+	rows, err := db.Query(
+		`SELECT id, title, body_md, created_at, updated_at FROM notes
+		  WHERE id IN (`+list+`) AND deleted_at IS NULL`, args...)
+	if err != nil {
+		return nil, serr.Wrap(err, "cannot read notes by id")
+	}
+	notes, err := scanNotes(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := attachRefsAndTags(db, notes); err != nil {
+		return nil, err
+	}
+
+	for _, n := range notes {
+		out[n.ID] = n
+	}
+	return out, nil
+}
+
 // CountNotes returns how many live notes exist. Used by the dashboard.
 func CountNotes(db *sql.DB) (int, error) {
 	var n int

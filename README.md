@@ -6,9 +6,10 @@ Track notes and correlations between scriptures, study topics, and assemble
 sermons and teachings from what you have collected. Scripture is cached
 locally, so study works with the network off.
 
-> **Status: Phase 3 of 5.** The scripture cache, chapter reader, verse hub,
-> notes, tags, cross-references and search across all of them are working. The
-> sermon builder and file-sync are still to come — see [Roadmap](#roadmap) and
+> **Status: Phase 4 of 5.** The scripture cache, chapter reader, verse hub,
+> notes, tags, cross-references, search across all of them, and the sermon
+> builder with its exports and optional AI drafting are working. File-sync
+> across machines is still to come — see [Roadmap](#roadmap) and
 > [PLAN.md](PLAN.md).
 
 ---
@@ -97,6 +98,7 @@ export, or a backup, and the drafting UI is hidden entirely when it is unset.
 - `/notes` — everything you have written, most recently edited first
 - `/tags/:id` — a topic: every note carrying that tag, whatever passage each
   one is anchored to
+- `/sermons/:id` — the outline builder, with Markdown and HTML exports
 - `/search?q=` — press `/` from anywhere to jump to the search box
 
 ### Searching
@@ -152,6 +154,46 @@ you get there.
 
 Nothing is erased. Deleting a note or a tag retires it with a tombstone, which
 is what lets the deletion travel to your other machines once sync lands.
+
+### Building a sermon
+
+A sermon is an ordered outline of four kinds of section:
+
+| Kind | What it is |
+| --- | --- |
+| **Heading** | a movement of the sermon |
+| **Passage** | a reference, looked up when the outline is assembled |
+| **Note** | one of your notes, inlined whole |
+| **Point** | something you want to say |
+
+Add sections at the bottom of the builder, reorder them with the arrows, and
+export whenever you like:
+
+- `/sermons/:id/export.md` — Markdown, with the scripture inlined verbatim from
+  your cache and each note's body and anchors underneath its title.
+- `/sermons/:id/export.html` — the same document as a standalone page. Its
+  styles travel inside it, so it reads and prints correctly from a downloads
+  folder, an email, or a tablet on a lectern.
+
+A passage section stores the *reference*, not the text. Re-download a
+translation and every export picks up the new text; nothing goes stale. If a
+note gets deleted or a passage is not cached, the export says so in place
+rather than quietly leaving a hole.
+
+### Drafting with AI (optional)
+
+Set `ANTHROPIC_API_KEY` and the builder grows a **Draft with AI** button. Leave
+it unset and the button is simply absent — everything else, exports included,
+works the same.
+
+The drafter is handed the assembled outline: the same Markdown the export
+produces, no more. It is asked to follow the outline's order, to quote the
+supplied scripture exactly, never to cite a verse the outline did not give it,
+and to develop your notes rather than replace them. The draft streams into the
+page as it is written and is saved when it finishes.
+
+The key is read from the environment at startup and held in memory. It is never
+written to either database, to an export, or to a backup.
 
 ---
 
@@ -218,8 +260,8 @@ is the useful half of the behaviour without the double-linking.
 | 1 | Scripture cache, reader, verse hub, search | **done** |
 | 2 | Notes, tags, cross-references, Strong's shortcodes | **done** |
 | 3 | Notes search, combined scope, topical study pages | **done** |
-| 4 | Sermon outline builder, Markdown/HTML export, AI drafting | next |
-| 5 | File-based sync across machines, backups, settings | planned |
+| 4 | Sermon outline builder, Markdown/HTML export, AI drafting | **done** |
+| 5 | File-based sync across machines, backups, settings | next |
 
 [PLAN.md](PLAN.md) carries the full design, the schema, and the reasoning
 behind each decision.

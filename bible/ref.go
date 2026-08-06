@@ -15,11 +15,17 @@ import (
 // VerseStart == VerseEnd. The zero-vs-range distinction lets one type serve
 // both the reader (chapter view) and note anchors (range view) without a
 // separate "kind" field.
+//
+// The JSON tags are load-bearing rather than decorative: a Ref is persisted
+// inside a sermon outline today and will travel in the Phase 5 sync files, so
+// the wire names are pinned here in lower camel case to match every other
+// field this app writes. Leaving them to the Go field names would make the
+// stored format an accident of capitalisation.
 type Ref struct {
-	BookNum    int
-	Chapter    int
-	VerseStart int
-	VerseEnd   int
+	BookNum    int `json:"bookNum"`
+	Chapter    int `json:"chapter"`
+	VerseStart int `json:"verseStart,omitempty"`
+	VerseEnd   int `json:"verseEnd,omitempty"`
 }
 
 // IsChapter reports whether the reference names a whole chapter.

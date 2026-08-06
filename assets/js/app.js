@@ -56,4 +56,81 @@
       }
     });
   }
+
+  // ---- AI sermon draft stream --------------------------------------------
+  // The only part of this app that needs JavaScript to work at all. Everything
+  // else round-trips through a form; a draft arrives a few words at a time over
+  // several minutes, and there is no HTML-only way to show that.
+  //
+  // The panel carries its own endpoint in data-draft-url, so this script holds
+  // no URLs and the server injects no script.
+  var panel = document.querySelector("[data-draft-url]");
+
+  if (panel && window.EventSource) {
+    var statusEl = panel.querySelector("[data-draft-status]");
+    var textEl = panel.querySelector("[data-draft-text]");
+    var doneEl = panel.querySelector("[data-draft-done]");
+
+    var source = new EventSource(panel.getAttribute("data-draft-url"));
+    var settled = false;
+    var writing = false;
+
+    var setStatus = function (msg) {
+      if (statusEl && msg) { statusEl.textContent = msg; }
+    };
+
+    // Every terminal path goes through here, and every terminal path closes the
+    // socket. That close is load-bearing: EventSource reconnects on its own
+    // when a stream ends, and a reconnect would ask the server for a second
+    // draft of the same sermon. (The server refuses one, but the right place to
+    // not ask is here.)
+    var settle = function (msg) {
+      settled = true;
+      setStatus(msg);
+      if (doneEl) { doneEl.hidden = false; }
+      source.close();
+    };
+
+    var payload = function (ev) {
+      try { return JSON.parse(ev.data) || {}; } catch (e) { return {}; }
+    };
+
+    source.addEventListener("status", function (ev) {
+      setStatus(payload(ev).text);
+    });
+
+    source.addEventListener("delta", function (ev) {
+      var text = payload(ev).text;
+      if (!text || !textEl) { return; }
+
+      if (!writing) { writing = true; setStatus("Writing…"); }
+
+      // Follow the text only while the reader is already at the bottom, so
+      // scrolling back to re-read something is not yanked away by the next
+      // fragment. The 24px slack absorbs sub-pixel scroll positions.
+      var atBottom =
+        textEl.scrollHeight - textEl.scrollTop - textEl.clientHeight < 24;
+
+      // A text node, never innerHTML: this is model output landing in the DOM.
+      textEl.appendChild(document.createTextNode(text));
+
+      if (atBottom) { textEl.scrollTop = textEl.scrollHeight; }
+    });
+
+    source.addEventListener("done", function () {
+      settle("Draft finished and saved.");
+    });
+
+    source.addEventListener("fail", function (ev) {
+      settle(payload(ev).text || "Drafting failed.");
+    });
+
+    source.onerror = function () {
+      // Fires both for "could not connect" and for "the stream ended" — after
+      // a done/fail we have already closed, so anything reaching here is a real
+      // interruption.
+      if (settled) { return; }
+      settle("The connection to the draft stream was lost. Reload to see what was saved.");
+    };
+  }
 })();

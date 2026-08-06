@@ -583,3 +583,110 @@ a.chip:hover { text-decoration: none; border-color: accent; }
   .header-search input { width: 100%; max-width: none; }
   .scripture { font-size: 1.1rem; }
 }
+
+// ---- sermon builder ------------------------------------------------------
+// One create form on the sermons index: a sermon starts as a title and
+// nothing else, so it does not deserve a page of its own.
+.inline-create { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.inline-create input[type=text] { flex: 1 1 20rem; }
+
+// An outline row is a three-part grid rather than a flex row: the kind chip
+// and the action buttons are fixed-width, and the label takes what is left.
+// Flex would let a long heading push the buttons off the edge.
+.outline-row {
+  display: grid;
+  grid-template-columns: max-content 1fr max-content;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid border;
+}
+.outline-row:first-child { padding-top: 0; }
+.outline-row:last-child { border-bottom: none; padding-bottom: 0; }
+
+.chip-kind {
+  color: textDim;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  min-width: 4.6rem;
+  justify-content: center;
+}
+
+.outline-label { min-width: 0; overflow-wrap: anywhere; }
+.outline-label em { color: textDim; }
+
+// Each control is its own form, so they are laid out as siblings rather than
+// as buttons inside one.
+.outline-actions { display: flex; gap: 0.25rem; }
+.outline-actions form { display: contents; }
+
+.btn-icon {
+  padding: 0.15rem 0.45rem;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  color: textDim;
+}
+.btn-icon:hover { color: accent; }
+
+.section-add {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+.section-add input[type=text] { flex: 1 1 18rem; }
+.section-add + .field-hint { margin-bottom: 0.9rem; }
+.section-note { flex: 1 1 18rem; max-width: 100%; }
+
+// ---- AI draft ------------------------------------------------------------
+.draft-stream {
+  margin-top: 0.9rem;
+  padding: 0.7rem;
+  background: bgSunken;
+  border: 1px solid border;
+  border-radius: radius;
+}
+.draft-status {
+  font-size: 0.82rem;
+  color: textDim;
+  margin-bottom: 0.45rem;
+}
+// The live view is a <pre> because it is raw Markdown arriving a few words at
+// a time: rendering it per delta would reflow the whole panel on every frame,
+// and the finished draft is rendered properly on the next load anyway.
+.draft-text {
+  margin: 0;
+  max-height: 26rem;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: monoFont;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: text;
+}
+.draft-done { margin-top: 0.6rem; }
+
+.draft-body {
+  margin-top: 1rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid border;
+  max-width: maxWidth;
+}
+.draft-body h2 { font-size: 1.1rem; margin: 1.2rem 0 0.4rem; }
+.draft-body h3 { font-size: 1rem; margin: 1rem 0 0.3rem; color: textBright; }
+.draft-body blockquote {
+  margin: 0.7rem 0;
+  padding-left: 0.9rem;
+  border-left: 3px solid accentWarm;
+  font-family: readFont;
+  font-size: 1.02rem;
+  color: textBright;
+}
+
+@media (max-width: 600px) {
+  .outline-row { grid-template-columns: 1fr max-content; }
+  .chip-kind { grid-column: 1 / -1; justify-content: flex-start; }
+}

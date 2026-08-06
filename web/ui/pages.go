@@ -16,10 +16,12 @@ type Dashboard struct {
 	Translation  string
 	Translations []bible.Translation
 	VerseCount   int
-	// NoteCount and XrefCount summarise the study database — the half of the
-	// storage that cannot be re-downloaded, so it is worth seeing on arrival.
-	NoteCount int
-	XrefCount int
+	// NoteCount, XrefCount and SermonCount summarise the study database — the
+	// half of the storage that cannot be re-downloaded, so it is worth seeing
+	// on arrival.
+	NoteCount   int
+	XrefCount   int
+	SermonCount int
 }
 
 func (d Dashboard) Render(b *element.Builder) (x any) {
@@ -42,13 +44,22 @@ func (d Dashboard) Render(b *element.Builder) (x any) {
 				// Only mention the study database once there is something in
 				// it. "0 notes" on a fresh install is a reproach, not a
 				// status line.
-				if d.NoteCount == 0 && d.XrefCount == 0 {
+				if d.NoteCount == 0 && d.XrefCount == 0 && d.SermonCount == 0 {
 					return
 				}
 				b.T(" · ")
 				b.A("href", "/notes").T(Plural(d.NoteCount, "note"))
 				b.T(" · ")
 				b.T(Plural(d.XrefCount, "cross-reference"))
+				b.Wrap(func() {
+					// Sermons join the line only once one exists, for the same
+					// reason the whole line is conditional.
+					if d.SermonCount == 0 {
+						return
+					}
+					b.T(" · ")
+					b.A("href", "/sermons").T(Plural(d.SermonCount, "sermon"))
+				})
 			}),
 		)
 	}

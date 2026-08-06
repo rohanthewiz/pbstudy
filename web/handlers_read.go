@@ -44,6 +44,7 @@ func (s *Server) handleDashboard(ctx rweb.Context) error {
 	// page's reason for existing.
 	noteCount, _ := study.CountNotes(s.store.Study)
 	xrefCount, _ := study.CountXrefs(s.store.Study)
+	sermonCount, _ := study.CountSermons(s.store.Study)
 
 	return s.render(ctx, ui.Page{
 		Title:       "",
@@ -55,6 +56,7 @@ func (s *Server) handleDashboard(ctx rweb.Context) error {
 			VerseCount:   count,
 			NoteCount:    noteCount,
 			XrefCount:    xrefCount,
+			SermonCount:  sermonCount,
 		},
 	})
 }
