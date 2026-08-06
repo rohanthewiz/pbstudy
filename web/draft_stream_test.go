@@ -80,7 +80,9 @@ func newDraftHarness(t *testing.T, stall time.Duration, frames func(w http.Respo
 		t.Fatalf("AppendSection() error: %v", err)
 	}
 
-	srv, err := New(conf, st)
+	// No syncer: drafting has nothing to do with sync, and a nil one is the
+	// same "sync is off" path a machine without a sync directory takes.
+	srv, err := New(conf, st, nil)
 	if err != nil {
 		t.Fatalf("web.New() error: %v", err)
 	}

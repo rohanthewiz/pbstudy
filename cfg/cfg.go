@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/rohanthewiz/serr"
 )
@@ -54,6 +55,16 @@ func (c Config) BibleDBPath() string { return filepath.Join(c.DataDir, "bible.by
 // Synced indirectly, via JSON exports and Backup() snapshots, never by
 // copying this file while the process holds it open.
 func (c Config) StudyDBPath() string { return filepath.Join(c.DataDir, "study.bytdb") }
+
+// SyncBackupsDir is where snapshot files land inside the sync directory. A
+// snapshot is a self-consistent copy taken by the engine, so unlike the live
+// database it is safe for a sync daemon to pick up.
+func (c Config) SyncBackupsDir() string {
+	if c.SyncDir == "" {
+		return ""
+	}
+	return filepath.Join(c.SyncDir, "backups")
+}
 
 // AIEnabled reports whether the optional AI draft feature should be offered.
 // The UI hides the button entirely when this is false, rather than showing a
@@ -108,9 +119,50 @@ func Load() (Config, error) {
 			return c, serr.Wrap(err, "cannot resolve sync dir", "dir", c.SyncDir)
 		}
 		c.SyncDir = abs
+
+		if err := checkDirsDisjoint(c.DataDir, c.SyncDir); err != nil {
+			return c, err
+		}
 	}
 
 	return c, nil
+}
+
+// checkDirsDisjoint refuses a configuration where the live databases would end
+// up inside the synced directory (or the reverse).
+//
+// This is the one misconfiguration that can destroy the data this app exists to
+// protect. bytdb does no file locking and its files are append-only, so a sync
+// daemon that copies study.bytdb mid-append captures a torn tail — and the
+// machine on the other end then imports a database that is subtly, silently
+// wrong. Nesting either way puts the live files under a daemon's watch, so the
+// check is symmetric and startup fails loudly rather than degrading.
+//
+// The safe arrangement is two separate trees:
+//
+//	~/.pbstudy/            live: bible.bytdb, study.bytdb   (never synced)
+//	~/iCloud/pbstudy/      synced: notes/, tags/, backups/  (never opened)
+func checkDirsDisjoint(dataDir, syncDir string) error {
+	data := filepath.Clean(dataDir)
+	sync := filepath.Clean(syncDir)
+
+	if data == sync {
+		return serr.New("sync dir must not be the data dir",
+			EnvDataDir, data, EnvSyncDir, sync,
+			"why", "a sync daemon copying a live bytdb file captures a torn tail")
+	}
+	// Compare with a trailing separator so /a/pbstudy-sync is not read as
+	// living inside /a/pbstudy.
+	if strings.HasPrefix(sync+string(filepath.Separator), data+string(filepath.Separator)) {
+		return serr.New("sync dir must not be inside the data dir",
+			EnvDataDir, data, EnvSyncDir, sync)
+	}
+	if strings.HasPrefix(data+string(filepath.Separator), sync+string(filepath.Separator)) {
+		return serr.New("data dir must not be inside the sync dir",
+			EnvDataDir, data, EnvSyncDir, sync,
+			"why", "the live databases would be handed to the sync daemon")
+	}
+	return nil
 }
 
 // Address is the listen address in the ":port" form rweb expects. The empty

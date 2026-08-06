@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/rohanthewiz/element"
@@ -19,6 +20,7 @@ import (
 	"github.com/rohanthewiz/pbstudy/assets"
 	"github.com/rohanthewiz/pbstudy/cfg"
 	"github.com/rohanthewiz/pbstudy/store"
+	"github.com/rohanthewiz/pbstudy/syncer"
 	"github.com/rohanthewiz/pbstudy/web/ui"
 )
 
@@ -41,10 +43,36 @@ type Server struct {
 	// variable so a test can shorten its own server's without racing another
 	// server's in-flight goroutines. See defaultDraftStall.
 	draftStall time.Duration
+	// sync reconciles the study database with the sync directory. Nil when no
+	// sync directory is configured — sync is optional, and every handler that
+	// touches it checks first rather than the app refusing to start.
+	sync *syncer.Syncer
+	// lastSync holds the report from the most recent manual run (and the
+	// result of the most recent backup) so the settings page can show it after
+	// the POST's redirect. Guarded because a debounced export and a request
+	// can touch it at once.
+	lastSync   syncOutcome
+	lastSyncMu sync.RWMutex
+}
+
+// syncOutcome is what the settings page shows after a sync or backup action.
+// One slot for both, because they are the same kind of thing from the page's
+// point of view: something the user pressed a button for, whose result they now
+// need to see.
+type syncOutcome struct {
+	At      time.Time
+	Report  syncer.Report
+	Problem string
+	// Backup is the path written by the backup button, when that is what ran.
+	Backup string
 }
 
 // New builds the server and registers all routes.
-func New(conf cfg.Config, st *store.Store) (*Server, error) {
+//
+// sync may be nil, which is what "no sync directory configured" looks like all
+// the way down: the settings page says so, the routes report it, and nothing
+// else in the app changes behaviour.
+func New(conf cfg.Config, st *store.Store, sync *syncer.Syncer) (*Server, error) {
 	s := &Server{
 		cfg:   conf,
 		store: st,
@@ -54,14 +82,37 @@ func New(conf cfg.Config, st *store.Store) (*Server, error) {
 		}),
 		drafts:     newDraftJobs(),
 		draftStall: defaultDraftStall,
+		sync:       sync,
 	}
 
 	s.rweb.Use(rweb.RequestInfo)
+	s.rweb.Use(s.syncOnWrite)
 
 	if err := s.registerRoutes(); err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+// syncOnWrite schedules a debounced export after any successful mutation.
+//
+// One middleware rather than a call at the end of a dozen handlers. Every
+// mutation in this app is a POST that ends in a redirect or a re-render, and
+// every future one will be too, so the hook belongs where that rule lives
+// instead of in each handler that happens to remember it. The debounce is what
+// makes this cheap: three outline edits in five seconds are one export.
+//
+// Failed requests are excluded — a 4xx/5xx wrote nothing worth publishing —
+// and Touch itself never blocks, so nothing here is on the response's critical
+// path.
+func (s *Server) syncOnWrite(ctx rweb.Context) error {
+	err := ctx.Next()
+
+	if s.sync != nil && ctx.Request().Method() == http.MethodPost &&
+		err == nil && ctx.Response().Status() < 400 {
+		s.sync.Touch()
+	}
+	return err
 }
 
 // Run starts listening. It blocks until the server stops.
@@ -155,6 +206,13 @@ func (s *Server) registerRoutes() error {
 	// there is a reader for it. See handleSermonDraftStream.
 	s.rweb.Post("/sermons/:id/draft", s.handleSermonDraft)
 	s.rweb.Get("/sermons/:id/draft/stream", s.handleSermonDraftStream)
+
+	// --- sync -------------------------------------------------------------
+	// Both are POST-then-redirect: the result is held on the server and shown
+	// on the settings page, so a refresh after a sync re-reads the report
+	// rather than running a second one.
+	s.rweb.Post("/sync/run", s.handleSyncRun)
+	s.rweb.Post("/backup", s.handleBackup)
 
 	return nil
 }

@@ -11,11 +11,14 @@
 //	pbstudy [serve]                    start the web app (default)
 //	pbstudy download <kjv|web|asv|all> fetch scripture into the local cache
 //	pbstudy backup [dir]               write a snapshot of the study database
+//	pbstudy sync                       reconcile with the sync directory
 package main
 
 import (
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/rohanthewiz/logger"
 	"github.com/rohanthewiz/serr"
@@ -27,6 +30,7 @@ import (
 	"github.com/rohanthewiz/pbstudy/bible"
 	"github.com/rohanthewiz/pbstudy/cfg"
 	"github.com/rohanthewiz/pbstudy/store"
+	"github.com/rohanthewiz/pbstudy/syncer"
 	"github.com/rohanthewiz/pbstudy/web"
 )
 
@@ -76,6 +80,8 @@ func run(args []string) error {
 		return cmdDownload(st, args)
 	case "backup":
 		return cmdBackup(conf, st, args)
+	case "sync":
+		return cmdSync(conf, st)
 	default:
 		usage()
 		return serr.New("unknown command", "command", command)
@@ -89,12 +95,17 @@ Usage:
   pbstudy [serve]                      start the web app (default)
   pbstudy download <kjv|web|asv|all>   fetch scripture into the local cache
   pbstudy backup [dir]                 snapshot the study database
+  pbstudy sync                         reconcile with the sync directory
 
 Environment:
   PBSTUDY_DATA_DIR    where the databases live      (default ~/.pbstudy)
   PBSTUDY_SYNC_DIR    sync/backup directory         (default: sync disabled)
   PBSTUDY_PORT        HTTP listen port              (default 8000)
   ANTHROPIC_API_KEY   enables AI sermon drafting    (optional)
+
+The sync directory must not contain, or live inside, the data directory:
+the live databases are unlocked and append-only, so a sync daemon that
+copies one mid-write captures a torn file.
 `)
 }
 
@@ -106,7 +117,29 @@ func cmdServe(conf cfg.Config, st *store.Store) error {
 		return err
 	}
 
-	srv, err := web.New(conf, st)
+	sync, err := openSyncer(conf, st)
+	if err != nil {
+		return err
+	}
+	if sync != nil {
+		// Import before the first page is served: whatever the sync daemon
+		// delivered while this app was closed should already be here when the
+		// user opens the notes list, not one manual button-press later.
+		rep, err := sync.ImportAll()
+		if err != nil {
+			// A sync directory that cannot be read is not a reason to refuse to
+			// open the user's own database. Say so and carry on local-only.
+			logger.LogErr(err, "startup sync import failed", "dir", sync.Dir())
+		} else if rep.Imported() > 0 || rep.Problems() > 0 {
+			fmt.Printf("Sync: %s\n", rep.Headline())
+		}
+
+		// rweb's Run() does not return on a signal, so the export that must
+		// happen before exit is hung off the signal itself.
+		installShutdownFlush(sync, st)
+	}
+
+	srv, err := web.New(conf, st, sync)
 	if err != nil {
 		return err
 	}
@@ -114,6 +147,85 @@ func cmdServe(conf cfg.Config, st *store.Store) error {
 	fmt.Printf("pbstudy serving on http://localhost:%d  (data: %s)\n",
 		conf.Port, conf.DataDir)
 	return srv.Run()
+}
+
+// openSyncer builds the syncer, or returns nil when no sync directory is
+// configured. Sync is optional everywhere: a nil syncer is a working app.
+func openSyncer(conf cfg.Config, st *store.Store) (*syncer.Syncer, error) {
+	if !conf.SyncEnabled() {
+		return nil, nil
+	}
+	sync, err := syncer.New(st.Study, conf.SyncDir)
+	if err != nil {
+		return nil, err
+	}
+	return sync, nil
+}
+
+// installShutdownFlush exports pending changes when the process is asked to
+// stop.
+//
+// Automatic export is debounced by a couple of seconds (syncer.DebounceDelay),
+// which means a note saved immediately before Ctrl-C has not been written out
+// yet. Without this, the last edit of every session would sit in the database
+// until the next run — precisely the edit most likely to be wanted on the other
+// machine.
+//
+// The handler does the closing itself: os.Exit runs no deferred functions, and
+// the alternative (asking rweb to stop) does not exist in its API.
+func installShutdownFlush(sync *syncer.Syncer, st *store.Store) {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigs
+		fmt.Printf("\nStopping (%s); writing pending changes to the sync directory ...\n", sig)
+
+		if rep, err := sync.Flush(); err != nil {
+			logger.LogErr(err, "final sync export failed")
+		} else if rep.Exported() > 0 {
+			fmt.Printf("Sync: %d file(s) written\n", rep.Exported())
+		}
+
+		if err := st.Close(); err != nil {
+			logger.LogErr(err, "error closing databases")
+		}
+		os.Exit(0)
+	}()
+}
+
+// cmdSync reconciles the sync directory from the command line.
+//
+// The same engine the settings page drives, reachable without starting the
+// server — which is what makes it scriptable (a cron job, a git pre-commit
+// hook on the sync repo). It cannot run while `serve` holds the data directory
+// lock, and that is the correct answer: one writer at a time.
+func cmdSync(conf cfg.Config, st *store.Store) error {
+	if !conf.SyncEnabled() {
+		return serr.New("sync is not configured", "hint", "set "+cfg.EnvSyncDir)
+	}
+
+	sync, err := syncer.New(st.Study, conf.SyncDir)
+	if err != nil {
+		return err
+	}
+
+	rep, err := sync.Run()
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Sync with %s\n  %s\n", rep.Dir, rep.Headline())
+	for _, e := range rep.Entities {
+		fmt.Printf("  %-18s %s\n", e.Label(), e.Summary())
+		for _, n := range e.Notes {
+			fmt.Printf("      - %s\n", n)
+		}
+		for _, p := range e.Problems {
+			fmt.Printf("      ! %s\n", p)
+		}
+	}
+	return nil
 }
 
 // cmdDownload fetches one or all translations into the scripture cache.

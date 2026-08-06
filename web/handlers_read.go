@@ -328,6 +328,7 @@ func (s *Server) handleSettings(ctx rweb.Context) error {
 			AIEnabled:    s.cfg.AIEnabled(),
 			Translations: downloaded,
 			VerseCounts:  counts,
+			Sync:         s.syncStatus(),
 		},
 	})
 }

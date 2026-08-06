@@ -690,3 +690,34 @@ a.chip:hover { text-decoration: none; border-color: accent; }
   .outline-row { grid-template-columns: 1fr max-content; }
   .chip-kind { grid-column: 1 / -1; justify-content: flex-start; }
 }
+
+// ---- sync ----------------------------------------------------------------
+// The two sync actions are separate one-button forms sitting side by side, so
+// each POSTs to its own endpoint without any JavaScript to route a shared
+// submit. .inline-form exists only to stop a <form> from forcing a line break.
+.inline-form { display: inline; margin: 0; }
+
+// The report of the last run. Bordered off from the buttons above it because
+// it is the answer to the button, not more explanation of it.
+.sync-report {
+  margin-top: 0.9rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid border;
+}
+.sync-when { margin: 0 0 0.4rem; color: textDim; font-size: 0.82rem; }
+.sync-headline { margin: 0 0 0.5rem; color: textBright; }
+
+.sync-lines { margin: 0; padding-left: 1.1rem; font-size: 0.9rem; }
+.sync-lines li { margin-bottom: 0.25rem; }
+.sync-lines ul { margin: 0.2rem 0 0.4rem; padding-left: 1.1rem; color: textDim; }
+
+// Problems are the only thing on this page that can mean data did not move.
+// They get the danger colour wherever they appear — in the per-entity list or
+// as the whole outcome.
+.problem { color: danger; }
+
+.sync-backups { margin-top: 0.9rem; }
+.sync-backups h3 { margin: 0 0 0.4rem; font-size: 0.95rem; color: textBright; font-weight: 600; }
+.plain-list { margin: 0 0 0.6rem; padding-left: 1.1rem; font-size: 0.88rem; }
+.plain-list code { font-family: monoFont; font-size: 0.82rem; }
+.muted { color: textDim; }

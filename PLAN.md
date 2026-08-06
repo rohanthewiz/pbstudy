@@ -76,7 +76,8 @@ Layout shell includes ScriptTagger (config before script tag, `DarkTheme: true`,
 2. ~~**Notes/tags/xrefs**~~ — **DONE** (see "Phase 2 outcome" below): study package, note/tag/xref CRUD, note editor + goldmark + `[[G26]]` links, verse-hub quick-add forms, reader indicator dots, tags browser.
 3. ~~**Search + topical study**~~ — **DONE** (see "Phase 3 outcome" below): scripture ILIKE search, notes search, combined page, ref fast-path; download WEB+ASV, parallel-translation verse hub.
 4. ~~**Sermon builder + AI**~~ — **DONE** (see "Phase 4 outcome" below): sermons CRUD, outline UI (form round-trips), AssembleOutline, exports, streaming AI draft.
-5. **Sync**: syncer package, backup route, settings; test with two DataDirs on one machine simulating two hosts.
+5. ~~**Sync**~~ — **DONE** (see "Phase 5 outcome" below): syncer package, backup
+   route, settings; tested with two DataDirs on one machine simulating two hosts.
 
 Then `git init` + initial commit (user said data should sync; repo hosting is his call later).
 
@@ -399,4 +400,109 @@ web/handlers_sermons.go     CRUD, sections, exports, draft + stream
 bible/ref.go                + JSON tags on Ref (sync-facing wire names)
 assets/js/app.js            + EventSource draft reader
 assets/styles/app.styl      + outline rows, add forms, draft panel
+```
+
+## Phase 5 outcome (implemented)
+
+**Verified** with two data directories on one machine sharing one sync folder,
+each running a real server: a note created on A (two anchors, two tags) reaches
+B's notes list, verse hub and tag pages; an edit on B wins back on A *and*
+removes the anchor B dropped; a delete on A propagates as a tombstone and does
+not resurrect on any later pass; a settled pair reports "Everything was already
+in step" and writes nothing. Automatic export fires ~2 s after a write with no
+request made; a rename made under a second before `SIGTERM` is still on disk
+afterwards. A snapshot taken from the settings page opens as `study.bytdb` in a
+fresh data directory with its sermons, tags and cross-references intact and the
+deleted note still deleted. No `.bytdb` ever appears in the sync folder outside
+`backups/`, and no `.tmp` survives a pass. `go build` / `go vet` /
+`go test -race` / `gofmt` all clean.
+
+### Deviations from the plan above, and why
+
+- **The merge is two passes, not one.** Import runs over the whole folder
+  first, then export re-reads the database. A single interleaved pass would
+  decide a row's fate against a snapshot taken before its own import changed
+  it, and immediately write back what it had just taken in.
+- **Tag identity forced a second clock comparison.** The syncer decides what to
+  import by comparing a file against the local row *with the same id* — but two
+  machines that both created "Grace" offline have two ids for it, and the unique
+  index on `tags.name` makes inserting the second one impossible. `ApplyTag`
+  therefore matches on the folded name and compares clocks itself, reporting
+  `TagUnchanged` when the local tag is already at least as new. Without that
+  second comparison the merge rewrites a timestamp on every run, the next run
+  exports it, and two machines trade the same tag forever. The cost of keeping
+  the local id is one redundant file per machine in `tags/`, which settles into
+  a no-op. The live check showed exactly that: 2 tags, 4 files, "nothing to do".
+- **The auto-export hook is one middleware, not a call in every handler.**
+  Every mutation in this app is a POST that ends in a redirect or a re-render,
+  so the rule lives where that rule lives. Failed requests are excluded, and
+  `Touch` is non-blocking, so nothing is on the response's critical path.
+- **`cfg.Load` refuses overlapping directories.** The plan warned never to let a
+  sync daemon touch the live file; a warning is not a mechanism. Startup now
+  fails if the sync dir is the data dir, or either contains the other.
+- **Sermon `status` is normalized on import.** "drafting" describes a generator
+  running in a process — possibly one that crashed on the other machine — so an
+  incoming `drafting` becomes `drafted` if there is draft text and `outline` if
+  there is not. This is the Phase 4 carried-forward item, closed.
+- **A `pbstudy sync` subcommand was added.** The same engine the settings page
+  drives, without starting the server, so a cron job or a git hook can run it.
+  It cannot run while `serve` holds the data-directory lock, which is correct.
+- **No download buttons on the settings page.** The route list sketched them;
+  downloading 66 books over HTTP from a web handler needs its own progress
+  stream and concurrency guard, and `pbstudy download` already does the job
+  honestly. Settings gained the sync and backup buttons instead.
+- **Records are their own types, not the domain types.** `Note`/`Tag`/`CrossRef`
+  /`Sermon` are shaped for the pages that display them — tombstones filtered,
+  tag links resolved, unexported direction fields. A record must carry
+  tombstones, stay stable across versions, and be readable in a text editor. One
+  type serving both would make every display change a change to the format of
+  files already sitting in someone's iCloud folder.
+
+### The clock, and the precision it is compared at
+
+bytdb stores `TIMESTAMP` at **microsecond** precision — a value written with
+nanoseconds reads back truncated (measured, not assumed). Two consequences,
+both load-bearing:
+
+- Every record is built from a database read, never from an in-memory value, so
+  `RFC3339Nano` round-trips it exactly.
+- `syncer.newer` truncates both sides to microseconds before comparing. Raw
+  comparison would make a freshly imported row look permanently older than the
+  file it came from, and every run would re-import it forever.
+
+Ties lose. An equal clock is not evidence of a change.
+
+### What the report is for
+
+`syncer.Report` is a first-class result rather than a log line, because sync is
+the one feature whose success is invisible — nothing on screen changes when it
+works. A silent pass that failed to import the note written on the other machine
+is indistinguishable from one that had nothing to do. So every pass counts what
+moved in each direction, names every file it could not use (unreadable JSON,
+wrong kind for the folder, a format version from a newer pbstudy), and says out
+loud when a tag was merged by name. Problems are collected rather than returned,
+so one broken file never stops the pass — and never vanishes either. The
+`/sync/run` and `/backup` handlers hold the last outcome on the server and
+redirect to `/settings`, so a refresh re-reads the report instead of running a
+second sync.
+
+### Phase 5 file map
+
+```
+syncer/syncer.go            Syncer, Run/ImportAll/ExportAll/Touch/Flush, merge rule
+      files.go              atomic writes, folder scan, id-as-filename guard
+      report.go             Report/EntityReport — what a pass did, per entity
+      syncer_test.go        two simulated hosts: round trip, tag convergence,
+                            tombstones, direction-only passes, debounce
+      files_test.go         path-traversal refusal, ignored files, wire shape
+study/sync.go               record types, whole-table export, idempotent apply
+     sync_test.go           export→apply→export round trip, tombstone NULLs,
+                            the three ApplyTag outcomes, status normalization
+cfg/cfg.go                  + SyncBackupsDir, checkDirsDisjoint
+   cfg_test.go              the overlap guard
+web/handlers_sync.go        /sync/run, /backup, settings status, backup listing
+   server.go                + syncer field, syncOnWrite middleware, sync routes
+   ui/pages.go              + Settings.Sync card, report, snapshot list
+main.go                     + sync subcommand, startup import, shutdown flush
+assets/styles/app.styl      + sync report, problem lines, snapshot list
 ```

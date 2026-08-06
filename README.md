@@ -6,10 +6,10 @@ Track notes and correlations between scriptures, study topics, and assemble
 sermons and teachings from what you have collected. Scripture is cached
 locally, so study works with the network off.
 
-> **Status: Phase 4 of 5.** The scripture cache, chapter reader, verse hub,
-> notes, tags, cross-references, search across all of them, and the sermon
-> builder with its exports and optional AI drafting are working. File-sync
-> across machines is still to come — see [Roadmap](#roadmap) and
+> **Status: complete through Phase 5.** The scripture cache, chapter reader,
+> verse hub, notes, tags, cross-references, search across all of them, the
+> sermon builder with its exports and optional AI drafting, and file-based sync
+> across machines are all working. See [Roadmap](#roadmap) and
 > [PLAN.md](PLAN.md).
 
 ---
@@ -67,6 +67,7 @@ view on the verse hub.
 pbstudy [serve]                      start the web app (default)
 pbstudy download <kjv|web|asv|all>   fetch scripture into the local cache
 pbstudy backup [dir]                 snapshot the study database
+pbstudy sync                         reconcile with the sync directory
 ```
 
 Downloads are idempotent — re-running replaces a translation in place rather
@@ -100,6 +101,7 @@ export, or a backup, and the drafting UI is hidden entirely when it is unset.
   one is anchored to
 - `/sermons/:id` — the outline builder, with Markdown and HTML exports
 - `/search?q=` — press `/` from anywhere to jump to the search box
+- `/settings` — resolved paths, cache state, and the sync and backup buttons
 
 ### Searching
 
@@ -195,6 +197,63 @@ page as it is written and is saved when it finishes.
 The key is read from the environment at startup and held in memory. It is never
 written to either database, to an export, or to a backup.
 
+### Syncing across machines
+
+Point `PBSTUDY_SYNC_DIR` at a folder your sync service already keeps in step —
+an iCloud Drive folder, a Syncthing share, a git checkout — and restart:
+
+```sh
+PBSTUDY_SYNC_DIR=~/Library/Mobile\ Documents/com~apple~CloudDocs/pbstudy pbstudy serve
+```
+
+Every note, tag, cross-reference and sermon is written there as its own small
+JSON file, named for its id. Scripture never is: it is 28 MB of text you can
+re-download in thirty seconds.
+
+```
+<sync>/notes/<uuid>.json      one file per note — body, anchors, tag names
+      /tags/<uuid>.json
+      /xrefs/<uuid>.json
+      /sermons/<uuid>.json    outline and draft included
+      /backups/study-<ts>.bytdb
+```
+
+Nothing has to be triggered. Edits are exported a couple of seconds after you
+make them, whatever arrived while pbstudy was closed is imported at startup, and
+anything still pending is flushed when the process is asked to stop. **Sync now**
+and **Back up the study database** on the settings page are there for when you
+want to force the issue, and `pbstudy sync` does the same thing from a script.
+
+Conflicts are settled last-writer-wins, per row, on the `updatedAt` clock: the
+newer of the file and the row overwrites the other, and neither side has to have
+seen the other before. Deletes travel as tombstones rather than as absences —
+a row that simply vanished would look identical to one the other machine has
+not seen yet, and would come straight back on the next import.
+
+Two things are worth knowing:
+
+- **Editing the same note on two machines while both are offline loses one
+  side.** That is the accepted trade for a single-user tool, and it is what the
+  snapshots are for.
+- **The sync folder must sit outside the data directory** (and vice versa).
+  pbstudy refuses to start otherwise — see below.
+
+Every run reports what it did, on the settings page or on the terminal:
+
+```
+Sync with ~/iCloud/pbstudy
+  1 change in, 0 files out.
+  Notes              1 in · 1 unchanged
+  Tags               nothing to do (6 already in step)
+  Cross-references   nothing to do (2 already in step)
+  Sermons            nothing to do (2 already in step)
+```
+
+That report is the whole user interface for a feature whose success is
+otherwise invisible. A file it cannot use — unreadable JSON, a record in the
+wrong folder, a format written by a newer pbstudy — is named and left alone
+rather than skipped in silence.
+
 ---
 
 ## How it works
@@ -215,11 +274,16 @@ stale scripture cache be deleted without a second thought.
 ### Never copy a live database
 
 bytdb does no file locking, so a copy taken while the process is appending has
-a torn tail. Two consequences, both enforced rather than documented:
+a torn tail. Three consequences, all enforced rather than documented:
 
 - **Never point a sync daemon at the data directory.** Use
-  `pbstudy backup`, which takes an internal snapshot and writes a
-  self-consistent file that is safe to drop in iCloud or Syncthing.
+  `pbstudy backup` (or the settings page's button), which takes an internal
+  snapshot and writes a self-consistent file that is safe to drop in iCloud or
+  Syncthing. This is enforced, not advised: startup fails if the sync directory
+  is the data directory, or if either contains the other.
+- **What the sync folder holds is JSON, not the database.** One small file per
+  row, replaced by atomic rename, so a daemon copying the folder mid-write can
+  at worst pick up a file a moment late — never half of one.
 - **Only one pbstudy process per data directory.** Startup takes an advisory
   `flock`; a second process is refused and told which PID holds the directory.
   The kernel releases the lock on exit, including a crash, so there is no stale
@@ -261,7 +325,7 @@ is the useful half of the behaviour without the double-linking.
 | 2 | Notes, tags, cross-references, Strong's shortcodes | **done** |
 | 3 | Notes search, combined scope, topical study pages | **done** |
 | 4 | Sermon outline builder, Markdown/HTML export, AI drafting | **done** |
-| 5 | File-based sync across machines, backups, settings | next |
+| 5 | File-based sync across machines, backups, settings | **done** |
 
 [PLAN.md](PLAN.md) carries the full design, the schema, and the reasoning
 behind each decision.
