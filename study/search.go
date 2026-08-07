@@ -19,13 +19,12 @@ import (
 // bible.SearchText — and the two stay symmetric on purpose: one mental model
 // for "how does search work here".
 //
-// # The one bytdb rule these queries respect
+// # Why none of them join
 //
-// None of them join. NotesForVerse and friends need DISTINCT over a join to
-// notes, and bytdb rejects a qualified ORDER BY under DISTINCT (it matches on
-// the output column name). Searching notes needs no join at all — the text
-// lives on the notes row — so the trap is avoided by construction rather than
-// worked around.
+// NotesForVerse and friends need DISTINCT over a join to notes, because a note
+// reachable by several anchors would otherwise repeat. The searchable text all
+// lives on the notes row itself, so these queries need neither the join nor the
+// DISTINCT — one scan, one row per note.
 
 // DefaultSearchLimit caps a single result group. Large enough that a real
 // search is never silently cut short, small enough that a one-letter query

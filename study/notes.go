@@ -219,17 +219,14 @@ func ListNotes(db *sql.DB, limit int) ([]Note, error) {
 // verse_start = verse_end = 0 and therefore does NOT match a specific verse —
 // see NotesForChapter for that case.
 //
-// # Two details the query cannot do without
-//
 // DISTINCT is load-bearing, not decoration. One note may carry several anchors
 // covering the same verse (say John 3:16 and John 3:16-18), and the join would
 // otherwise return it once per matching anchor.
 //
-// The ORDER BY key is written UNQUALIFIED on purpose. bytdb requires an
-// ORDER BY expression under DISTINCT to match a name in the select list, and
-// it matches on the output column name — "updated_at", not "n.updated_at".
-// Qualifying it is rejected outright at execution time. The same applies to
-// NotesForChapter and NotesForTag.
+// The ORDER BY key is qualified because two tables are in scope and only the
+// note's clock is meant to order the result. That form needs bytdb >= v0.9.0,
+// which resolves a qualified ORDER BY under DISTINCT against the select list;
+// go.mod holds the floor. The same applies to NotesForChapter and NotesForTag.
 func NotesForVerse(db *sql.DB, bookNum, chapter, verse int) ([]Note, error) {
 	rows, err := db.Query(
 		`SELECT DISTINCT n.id, n.title, n.body_md, n.created_at, n.updated_at
@@ -237,7 +234,7 @@ func NotesForVerse(db *sql.DB, bookNum, chapter, verse int) ([]Note, error) {
 		  WHERE r.book_num = $1 AND r.chapter = $2
 		    AND r.verse_start <= $3 AND r.verse_end >= $3
 		    AND n.deleted_at IS NULL
-		  ORDER BY updated_at DESC`,
+		  ORDER BY n.updated_at DESC`,
 		bookNum, chapter, verse)
 	if err != nil {
 		return nil, serr.Wrap(err, "cannot read notes for verse",
@@ -262,7 +259,7 @@ func NotesForChapter(db *sql.DB, bookNum, chapter int) ([]Note, error) {
 		   FROM note_refs r INNER JOIN notes n ON n.id = r.note_id
 		  WHERE r.book_num = $1 AND r.chapter = $2 AND r.verse_start = 0
 		    AND n.deleted_at IS NULL
-		  ORDER BY updated_at DESC`,
+		  ORDER BY n.updated_at DESC`,
 		bookNum, chapter)
 	if err != nil {
 		return nil, serr.Wrap(err, "cannot read chapter notes",

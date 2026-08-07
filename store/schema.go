@@ -7,25 +7,22 @@ import (
 	"github.com/rohanthewiz/serr"
 )
 
-// bytdb has no `CREATE TABLE IF NOT EXISTS` and no `ALTER TABLE ADD PRIMARY
-// KEY`, which shapes this whole file:
+// One bytdb limit still shapes this file: there is no `ALTER TABLE ADD PRIMARY
+// KEY`. Every table's primary key is declared inline at CREATE time, and there
+// is no second chance to add one — which is why the full study schema ships
+// here from the start rather than growing a phase at a time.
 //
-//   - Every table's primary key is declared inline at CREATE time. There is no
-//     second chance to add one.
-//   - Idempotency is achieved by asking the catalog what already exists and
-//     creating only the difference, rather than by a swallow-the-error retry.
-//     Probing keeps genuine DDL errors (a typo, a bad type) loud instead of
-//     silently classifying them as "already there".
+// Idempotency is the DDL's own job. Every statement below carries
+// `IF NOT EXISTS`, so bootstrapping an already-populated database is a no-op
+// per relation: bytdb checks the name, notices, and leaves existing rows and
+// index definitions untouched. The guard covers the name only — it does not
+// reconcile a changed column list — so a genuine schema change needs a real
+// migration, not an edit here.
 //
-// The catalog queries below are the two bytdb actually serves:
-// information_schema.tables for relations, pg_class for indexes.
-
-// ddl pairs a relation name with the statement that creates it, so the
-// bootstrap can skip the ones already present.
-type ddl struct {
-	name string // relation name as it appears in the catalog
-	stmt string
-}
+// This needs bytdb >= v0.9.1, which extended the guard clause from tables to
+// `CREATE [UNIQUE] INDEX`; go.mod holds the floor. Earlier versions forced the
+// bootstrap to probe `information_schema.tables` and `pg_class` and create only
+// the difference.
 
 // bibleSchema is the scripture cache.
 //
@@ -42,36 +39,36 @@ type ddl struct {
 // maintained on every one of the ~31k inserts per translation — twice the
 // write work for a strictly worse read path. The natural key is also what
 // makes re-downloading a translation idempotent (see bible.Download).
-var bibleSchema = []ddl{
-	{"translations", `CREATE TABLE translations (
+var bibleSchema = []string{
+	`CREATE TABLE IF NOT EXISTS translations (
 		abbrev TEXT PRIMARY KEY,
 		name TEXT,
 		lang TEXT,
 		downloaded_at TIMESTAMP
-	)`},
+	)`,
 
-	{"books", `CREATE TABLE books (
+	`CREATE TABLE IF NOT EXISTS books (
 		book_num INT PRIMARY KEY,
 		name TEXT,
 		osis TEXT,
 		blb_abbrev TEXT,
 		testament TEXT,
 		chapter_count INT
-	)`},
+	)`,
 
-	{"verses", `CREATE TABLE verses (
+	`CREATE TABLE IF NOT EXISTS verses (
 		translation TEXT,
 		book_num INT,
 		chapter INT,
 		verse INT,
 		body TEXT,
 		PRIMARY KEY (translation, book_num, chapter, verse)
-	)`},
+	)`,
 
 	// Scripture text search is an ILIKE scan; no index helps it. This index
 	// serves the reverse lookup "which translations have this verse", used
 	// by the parallel-translation verse hub.
-	{"idx_verses_ref", `CREATE INDEX idx_verses_ref ON verses (book_num, chapter, verse)`},
+	`CREATE INDEX IF NOT EXISTS idx_verses_ref ON verses (book_num, chapter, verse)`,
 }
 
 // studySchema is the user's own data.
@@ -86,22 +83,22 @@ var bibleSchema = []ddl{
 //	                     because a delete that leaves no trace is
 //	                     indistinguishable from "the other machine hasn't seen
 //	                     this row yet", and would resurrect on next import.
-var studySchema = []ddl{
+var studySchema = []string{
 	// body_md is Markdown. It may embed [[G26]] Strong's shortcodes, which
 	// render as Blue Letter Bible lexicon links.
-	{"notes", `CREATE TABLE notes (
+	`CREATE TABLE IF NOT EXISTS notes (
 		id TEXT PRIMARY KEY,
 		title TEXT,
 		body_md TEXT,
 		created_at TIMESTAMP,
 		updated_at TIMESTAMP,
 		deleted_at TIMESTAMP
-	)`},
+	)`,
 
 	// note_refs anchors a note to a verse range. These are children of a
 	// note, not independent entities: on sync import a note's refs are
 	// replaced wholesale, so they carry no tombstone of their own.
-	{"note_refs", `CREATE TABLE note_refs (
+	`CREATE TABLE IF NOT EXISTS note_refs (
 		id TEXT PRIMARY KEY,
 		note_id TEXT,
 		book_num INT,
@@ -109,38 +106,38 @@ var studySchema = []ddl{
 		verse_start INT,
 		verse_end INT,
 		updated_at TIMESTAMP
-	)`},
-	{"idx_note_refs_note", `CREATE INDEX idx_note_refs_note ON note_refs (note_id)`},
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_note_refs_note ON note_refs (note_id)`,
 	// Drives the reader's per-verse "has notes" indicator dots: one scan of
 	// a chapter's range rather than a lookup per verse.
-	{"idx_note_refs_loc", `CREATE INDEX idx_note_refs_loc ON note_refs (book_num, chapter, verse_start)`},
+	`CREATE INDEX IF NOT EXISTS idx_note_refs_loc ON note_refs (book_num, chapter, verse_start)`,
 
 	// Tag identity across machines is the NAME, not the id — two machines
 	// that independently create "Grace" must converge on one tag. The
 	// unique index enforces that locally; the sync importer matches on name.
-	{"tags", `CREATE TABLE tags (
+	`CREATE TABLE IF NOT EXISTS tags (
 		id TEXT PRIMARY KEY,
 		name TEXT,
 		descrip TEXT,
 		updated_at TIMESTAMP,
 		deleted_at TIMESTAMP
-	)`},
-	{"idx_tags_name", `CREATE UNIQUE INDEX idx_tags_name ON tags (name)`},
+	)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_name ON tags (name)`,
 
-	{"note_tags", `CREATE TABLE note_tags (
+	`CREATE TABLE IF NOT EXISTS note_tags (
 		id TEXT PRIMARY KEY,
 		note_id TEXT,
 		tag_id TEXT,
 		updated_at TIMESTAMP
-	)`},
-	{"idx_note_tags_note", `CREATE INDEX idx_note_tags_note ON note_tags (note_id)`},
-	{"idx_note_tags_tag", `CREATE INDEX idx_note_tags_tag ON note_tags (tag_id)`},
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_note_tags_note ON note_tags (note_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags (tag_id)`,
 
 	// The scripture-correlation feature: "this passage speaks to that one".
 	// Indexed in both directions because the verse hub shows references
 	// pointing out of a verse AND references pointing into it — a link the
 	// user drew from Romans to Genesis must surface while reading Genesis.
-	{"cross_refs", `CREATE TABLE cross_refs (
+	`CREATE TABLE IF NOT EXISTS cross_refs (
 		id TEXT PRIMARY KEY,
 		from_book INT,
 		from_chapter INT,
@@ -153,16 +150,16 @@ var studySchema = []ddl{
 		created_at TIMESTAMP,
 		updated_at TIMESTAMP,
 		deleted_at TIMESTAMP
-	)`},
-	{"idx_xrefs_from", `CREATE INDEX idx_xrefs_from ON cross_refs (from_book, from_chapter, from_verse)`},
-	{"idx_xrefs_to", `CREATE INDEX idx_xrefs_to ON cross_refs (to_book, to_chapter, to_verse_start)`},
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_xrefs_from ON cross_refs (from_book, from_chapter, from_verse)`,
+	`CREATE INDEX IF NOT EXISTS idx_xrefs_to ON cross_refs (to_book, to_chapter, to_verse_start)`,
 
 	// outline is an ordered JSONB array of sections
 	// ([{kind: heading|passage|note|point, ...}]) rather than a child table.
 	// A sermon outline is only ever read and written as a whole, and its
 	// ordering is intrinsic; a child table would buy nothing but joins and
 	// a position column to keep consistent.
-	{"sermons", `CREATE TABLE sermons (
+	`CREATE TABLE IF NOT EXISTS sermons (
 		id TEXT PRIMARY KEY,
 		title TEXT,
 		outline JSONB,
@@ -171,76 +168,34 @@ var studySchema = []ddl{
 		created_at TIMESTAMP,
 		updated_at TIMESTAMP,
 		deleted_at TIMESTAMP
-	)`},
+	)`,
 }
 
 func bootstrapBible(db *sql.DB) error { return applySchema(db, bibleSchema) }
 
 func bootstrapStudy(db *sql.DB) error { return applySchema(db, studySchema) }
 
-// applySchema creates whichever relations in schema are not already present.
-// Order matters: a CREATE INDEX must follow its table, so the slice is walked
-// in declaration order.
-func applySchema(db *sql.DB, schema []ddl) error {
-	existing, err := existingRelations(db)
-	if err != nil {
-		return err
-	}
-
-	for _, d := range schema {
-		if existing[d.name] {
-			continue
-		}
-		if _, err := db.Exec(d.stmt); err != nil {
-			// Tolerate the race/edge case where the catalog probe and the
-			// create disagree (e.g. a relation kind the probe doesn't
-			// list); anything else is a real schema bug.
-			if isAlreadyExists(err) {
-				continue
-			}
-			return serr.Wrap(err, "cannot create relation", "relation", d.name)
+// applySchema runs the schema statements in declaration order, which matters:
+// a CREATE INDEX names a table that must already exist, since IF NOT EXISTS
+// guards the index name and not its table.
+//
+// Anything that fails here is a real schema bug — a typo, a bad column type, a
+// statement out of order — and stops startup rather than leaving the app to
+// discover a missing relation one query at a time.
+func applySchema(db *sql.DB, schema []string) error {
+	for _, stmt := range schema {
+		if _, err := db.Exec(stmt); err != nil {
+			return serr.Wrap(err, "cannot apply schema statement", "statement", firstLine(stmt))
 		}
 	}
 	return nil
 }
 
-// existingRelations returns the set of table and index names already in the
-// database. Tables come from information_schema.tables; indexes are not listed
-// there, so pg_class supplies them (it lists tables, their implicit *_pkey
-// entries, and secondary indexes alike).
-func existingRelations(db *sql.DB) (map[string]bool, error) {
-	found := make(map[string]bool)
-
-	for _, q := range []string{
-		`SELECT table_name FROM information_schema.tables`,
-		`SELECT relname FROM pg_class`,
-	} {
-		rows, err := db.Query(q)
-		if err != nil {
-			return nil, serr.Wrap(err, "cannot read catalog", "query", q)
-		}
-		for rows.Next() {
-			var name string
-			if err := rows.Scan(&name); err != nil {
-				_ = rows.Close()
-				return nil, serr.Wrap(err, "cannot scan catalog row")
-			}
-			found[name] = true
-		}
-		if err := rows.Err(); err != nil {
-			_ = rows.Close()
-			return nil, serr.Wrap(err, "cannot iterate catalog", "query", q)
-		}
-		_ = rows.Close()
-	}
-
-	return found, nil
-}
-
-// isAlreadyExists matches bytdb's duplicate-relation errors ("table already
-// exists", "index already exists", `relation "x" already exists`). bytdb does
-// not expose these as sentinel values, so string matching is the only option;
-// it is kept narrow and used only as a backstop to the catalog probe.
-func isAlreadyExists(err error) bool {
-	return strings.Contains(err.Error(), "already exists")
+// firstLine trims a multi-line CREATE down to the part that identifies it, so
+// a startup failure reads "CREATE TABLE IF NOT EXISTS notes (" rather than
+// twelve lines of column definitions. Derived from the statement rather than
+// stored alongside it, so it cannot drift out of step with what actually ran.
+func firstLine(stmt string) string {
+	line, _, _ := strings.Cut(stmt, "\n")
+	return strings.TrimSpace(line)
 }

@@ -124,7 +124,7 @@ func NotesForTag(db *sql.DB, tagID string) ([]Note, error) {
 		`SELECT DISTINCT n.id, n.title, n.body_md, n.created_at, n.updated_at
 		   FROM note_tags nt INNER JOIN notes n ON n.id = nt.note_id
 		  WHERE nt.tag_id = $1 AND n.deleted_at IS NULL
-		  ORDER BY updated_at DESC`, tagID)
+		  ORDER BY n.updated_at DESC`, tagID)
 	if err != nil {
 		return nil, serr.Wrap(err, "cannot read notes for tag", "tag", tagID)
 	}

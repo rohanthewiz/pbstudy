@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/rohanthewiz/bytdb v0.8.0
+	github.com/rohanthewiz/bytdb v0.9.1
 	github.com/rohanthewiz/element v0.6.0
 	github.com/rohanthewiz/go-styl v0.2.0
 	github.com/rohanthewiz/logger v1.3.0
