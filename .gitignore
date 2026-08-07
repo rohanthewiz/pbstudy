@@ -13,5 +13,8 @@ pbstudy.lock
 /data/
 /sync/
 
+# Local tooling state, not project source
+/.cats-todo/
+
 # macOS
 .DS_Store
