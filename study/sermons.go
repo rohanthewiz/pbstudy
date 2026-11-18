@@ -279,6 +279,68 @@ func MoveSection(db *sql.DB, sermonID, sectionID string, delta int) error {
 	})
 }
 
+// UpdateSection changes what a section says, in place.
+//
+// Until this existed the only way to correct a section was to remove it and
+// add it again, and a new section lands at the bottom: fixing a typo in the
+// second point of a twenty-row outline meant one click to remove it, one to
+// re-add it, and eighteen presses of "up" to put it back.
+//
+// # What can change and what cannot
+//
+//	heading, point   Text is replaced from content.Text
+//	passage          Ref is replaced from content.Ref
+//	note             refused: the section is only a pointer, and the thing to
+//	                 edit is the note itself
+//
+// The section keeps its id, its kind and its position. The id is what the
+// builder's buttons address (see Section.ID), so a page rendered before the
+// edit still moves and removes the right row afterwards. The kind is fixed
+// because the two content fields mean different things per kind; turning a
+// point into a passage is a different section, not an edit to this one.
+//
+// content is a Section only as a carrier for the two fields; its ID and Kind
+// are ignored, so a caller cannot retarget or retype a section through it. The
+// result goes through ValidateSection, the same gate AppendSection's callers
+// use, so an edit cannot leave behind a section that could not have been added.
+func UpdateSection(db *sql.DB, sermonID, sectionID string, content Section) error {
+	return mutateOutline(db, sermonID, func(sections []Section) ([]Section, error) {
+		i := indexOfSection(sections, sectionID)
+		if i < 0 {
+			return nil, serr.New("that section is no longer in the outline",
+				"sermon", sermonID, "section", sectionID)
+		}
+
+		edited := sections[i]
+		switch edited.Kind {
+		case KindHeading, KindPoint:
+			edited.Text = strings.TrimSpace(content.Text)
+		case KindPassage:
+			edited.Ref = content.Ref
+		default:
+			return nil, serr.New("that kind of section cannot be edited in place",
+				"sermon", sermonID, "section", sectionID, "kind", edited.Kind)
+		}
+
+		if err := ValidateSection(edited); err != nil {
+			return nil, err
+		}
+		sections[i] = edited
+		return sections, nil
+	})
+}
+
+// SectionEditable reports whether UpdateSection accepts a section of this
+// kind. Exported so the builder page offers the edit control on exactly the
+// rows the data layer will take an edit for.
+func SectionEditable(kind string) bool {
+	switch kind {
+	case KindHeading, KindPoint, KindPassage:
+		return true
+	}
+	return false
+}
+
 // SetDraft stores generated draft text and moves the sermon to the matching
 // status.
 func SetDraft(db *sql.DB, id, draftMD, status string) error {

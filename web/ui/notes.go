@@ -185,7 +185,19 @@ func (e NoteEditor) Render(b *element.Builder) (x any) {
 		)
 	}
 
-	b.FormClass("note-editor", "method", "post", "action", e.Action).R(
+	// data-guard-unsaved hands the form to app.js, which warns before the page
+	// is left with unsaved typing in it and binds Cmd/Ctrl+S to Save. A form
+	// re-rendered after a rejected save starts out "already unsaved": the text
+	// in it exists nowhere but this page, although nothing has been typed into
+	// this copy of the page yet, so the script is told rather than left to
+	// infer it from input events that have not happened.
+	guard := "1"
+	if e.Problem != "" {
+		guard = "dirty"
+	}
+
+	b.FormClass("note-editor", "method", "post", "action", e.Action,
+		"data-guard-unsaved", guard).R(
 		b.LabelClass("field").R(
 			b.SpanClass("field-label").T("Title"),
 			b.Input("type", "text", "name", "title", "value", esc(e.Title),

@@ -614,6 +614,15 @@ a.chip:hover { text-decoration: none; border-color: accent; }
 }
 
 .outline-label { min-width: 0; overflow-wrap: anywhere; }
+
+// A row opened for editing (?edit=<id>) swaps its label for this form. It sits
+// in the label's grid cell, so the input takes the width the text had.
+.outline-edit { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0; }
+.outline-edit input[type=text] { flex: 1 1 14rem; min-width: 0; }
+
+// The row a URL fragment points at: the one just saved, or the one whose edit
+// was cancelled. Marked so the eye lands on it after the page reloads.
+.outline-row:target { background: bgSunken; }
 .outline-label em { color: textDim; }
 
 // Each control is its own form, so they are laid out as siblings rather than

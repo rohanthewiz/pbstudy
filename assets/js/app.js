@@ -57,6 +57,75 @@
     });
   }
 
+  // ---- unsaved-text guard -------------------------------------------------
+  // A note can be an hour of typing, and nothing saves it but the Save button.
+  // Without this, a click on a nav link, the back button or a closed tab
+  // discarded it without a word.
+  //
+  // Forms opt in with data-guard-unsaved. Each one tracks a single flag:
+  //
+  //   page loads ── input ──▶ dirty ── submit ──▶ leaving is fine (saving)
+  //                              │
+  //                              └── any other way off the page ──▶ browser asks
+  //
+  // data-guard-unsaved="dirty" starts the flag set: the server re-rendered the
+  // form after refusing a save, so its text is unsaved before a key is pressed.
+  //
+  // The prompt itself is the browser's ("Leave site? Changes you made may not
+  // be saved"); pages cannot word it. It is requested only while something is
+  // actually unsaved, because a beforeunload handler that always asks trains
+  // people to click through it.
+  var guarded = document.querySelectorAll("form[data-guard-unsaved]");
+  var unsaved = 0;        // how many guarded forms hold unsaved text
+  var submitting = false; // a guarded form is on its way to the server
+
+  Array.prototype.forEach.call(guarded, function (form) {
+    var dirty = false;
+    var markDirty = function () {
+      if (!dirty) { dirty = true; unsaved++; }
+    };
+
+    if (form.getAttribute("data-guard-unsaved") === "dirty") { markDirty(); }
+    form.addEventListener("input", markDirty);
+
+    // Saving is the one legitimate way to leave with text in the form.
+    form.addEventListener("submit", function () { submitting = true; });
+
+    // Cmd+S / Ctrl+S saves, as it does in every editor the hand already
+    // knows. Bound to the form, not the document, so it acts on the form
+    // being typed in and leaves the browser's own "save page" alone
+    // everywhere else. requestSubmit runs the form's validation and fires
+    // the submit event above; submit() is the fallback for old browsers and
+    // does neither, hence setting the flag by hand.
+    form.addEventListener("keydown", function (ev) {
+      if (!(ev.metaKey || ev.ctrlKey) || ev.altKey) { return; }
+      if (ev.key !== "s" && ev.key !== "S") { return; }
+      ev.preventDefault();
+      if (form.requestSubmit) {
+        form.requestSubmit();
+      } else {
+        submitting = true;
+        form.submit();
+      }
+    });
+  });
+
+  if (guarded.length > 0) {
+    window.addEventListener("beforeunload", function (ev) {
+      if (unsaved === 0 || submitting) { return; }
+      // Both lines are needed: preventDefault is the standard way to ask for
+      // the prompt, and returnValue is what older Chrome and Safari read.
+      ev.preventDefault();
+      ev.returnValue = "";
+    });
+
+    // A submit that never leaves the page (the server was unreachable, the
+    // browser's own validation stopped it) must not leave the guard switched
+    // off. pageshow also fires when the page comes back from the back/forward
+    // cache, where the old flag would otherwise still say "submitting".
+    window.addEventListener("pageshow", function () { submitting = false; });
+  }
+
   // ---- AI sermon draft stream --------------------------------------------
   // The only part of this app that needs JavaScript to work at all. Everything
   // else round-trips through a form; a draft arrives a few words at a time over

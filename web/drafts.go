@@ -168,6 +168,23 @@ func (s *Server) saveDraft(sermonID, text string) {
 	}
 	if err != nil {
 		logger.LogErr(err, "cannot save sermon draft", "sermon", sermonID)
+		return
+	}
+
+	// Schedule the sync export by hand. Every other write in the app is a POST
+	// and is picked up by the syncOnWrite middleware, but this one happens in
+	// runDraft's goroutine, minutes after the POST that started the draft and
+	// on the back of a GET stream:
+	//
+	//	POST /draft ──▶ middleware Touch ──▶ export (no draft yet)
+	//	GET  /draft/stream ... several minutes ... saveDraft   ◀── nothing Touched
+	//
+	// Without this the finished draft stayed on this machine until some later
+	// edit, or a clean shutdown, happened to trigger an export. Both branches
+	// above changed the row (SetStatus bumps updated_at as well), so both
+	// schedule one.
+	if s.sync != nil {
+		s.sync.Touch()
 	}
 }
 

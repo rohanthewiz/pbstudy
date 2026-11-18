@@ -36,7 +36,7 @@ Seeded 2026-10-12 from all seven session docs (`2026-0805-1823` through
   section** (Closed, Non-goals, or a move between the three).
 - **Open, Validate and Roadmap stay in ID order.** Never renumber.
 
-**Next ID:** N-022
+**Next ID:** N-039
 
 ## Open
 
@@ -45,6 +45,10 @@ Seeded 2026-10-12 from all seven session docs (`2026-0805-1823` through
   (`web/handlers_read.go:143`). Fine at present scale; if it ever shows up, the
   fix is a per-chapter cache invalidated on study writes, not a schema change.
   Lapsed once: dropped from `2026-0805-1935` without being done.
+  *Measured 2026-11-18 (`2026-1118-1346-deep-look-reliability-performance-usability`):*
+  with every note in the database anchored in the one chapter, `ChapterMarks`
+  took 1.2 ms at 500 notes and 5.8 ms at 2000. Nothing to fix at any size a
+  personal database reaches.
 
 - **N-005** · raised `2026-0805-2048-phase5-sync` · value low
   Live-tag duplicate files still accumulate, one per machine per name.
@@ -82,6 +86,80 @@ Seeded 2026-10-12 from all seven session docs (`2026-0805-1823` through
   classifier, so this matters only if refusals are ever seen (N-004's live
   run would be the first chance).
 
+- **N-027** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · value medium
+  *Reliability; a decision.* The server binds every interface with no
+  authentication (`cfg.Address` returns `":port"`, deliberately, for
+  reading from a phone on the LAN). On a shared network anyone can read and
+  delete the notes and spend the API key through the draft endpoint. N-026
+  does not cover this: these are direct requests, not a browser being
+  tricked. Options: (a) bind `127.0.0.1` by default and add
+  `PBSTUDY_BIND=0.0.0.0` for LAN use; (b) keep the default and add the
+  variable for people who want loopback only; (c) leave it. Related: with a
+  name-based `Host` allowlist, DNS rebinding could also be shut out.
+  **Question for the user:** which default?
+
+- **N-029** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · value medium
+  *Reliability; a decision.* Snapshots are the stated safety net for N-008,
+  but one is written only when the user presses the button or runs
+  `pbstudy backup`, and none is ever removed, so the synced backups folder
+  either stays empty or grows forever. Proposal: `serve` writes a snapshot
+  at startup when the newest one is more than a day old, and keeps the
+  newest N files that match its own `study-<stamp>.bytdb` naming.
+  **Question for the user:** is automatic pruning in the sync folder
+  acceptable, and how many to keep (14 suggested)?
+
+- **N-030** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · value low
+  *Usability.* Restoring a snapshot is undocumented, and it fights sync. The
+  error page says "restore the most recent snapshot" but nothing says how
+  (stop pbstudy, replace `study.bytdb` with the snapshot). With sync on, a
+  restored database has older `updated_at` values than the files in the
+  sync folder, so the next import re-applies everything newer and undoes
+  the restore for those rows. Recovering one lost note needs the opposite:
+  read a snapshot beside the live database and copy one row out. Wanted: a
+  README section at least, and possibly `pbstudy restore <file>` or a
+  read-only "open snapshot" mode.
+
+- **N-031** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · value low
+  *Reliability.* `cfg.checkDirsDisjoint` compares cleaned paths without
+  resolving symlinks, so a data directory reached through a link into the
+  sync folder (or the reverse, e.g. `~/iCloud` → `~/Library/Mobile
+  Documents/...`) passes the one check that keeps the live database away
+  from the sync daemon. Fix: resolve both through `filepath.EvalSymlinks`
+  (the deepest existing ancestor for a sync dir not created yet) before
+  comparing.
+
+- **N-032** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · value low
+  *Performance.* The first import on a new machine commits once per record,
+  and each commit is an fsync: measured 3.0 ms per note, so 1.5 s for 500
+  notes and 6.1 s for 2000, before the first page is served. It happens
+  once per machine. If it ever matters, apply each entity's files inside
+  one transaction. Everything else measured at 2000 notes is fine: the
+  debounced no-op export 52 ms, `SearchNotes` 32 ms, `ListNotes` 62 ms,
+  `ChapterMarks` 6 ms.
+
+- **N-034** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · value low
+  *Usability.* The notes list, the sermons list and the sermon builder's
+  note picker stop at 500 rows without saying so (`DefaultNoteLimit`,
+  `DefaultSermonLimit`); note 501 is reachable only by search. The picker
+  also loads every note whole (body, anchors, tags) to print titles. Fix
+  when someone gets near the cap: a "showing the newest 500" notice like the
+  search page's, and a titles-only query for the picker.
+
+- **N-036** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · value medium
+  *Usability.* A deleted note or sermon cannot be brought back from the UI,
+  although the row, and a note's anchors, are kept as a tombstone until
+  `pbstudy compact` removes them (90 days by default). The delete button
+  says the note is "retired rather than erased" and then offers no way to
+  see it again. Wanted: a "Recently deleted" page with Restore (clear
+  `deleted_at`, bump `updated_at` so the undelete wins the sync clock).
+  Open detail: a note's tag links survive its own delete but not the
+  delete of the tag.
+
+- **N-038** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · value low
+  *Usability.* The AI draft can be read only on the builder page. Both
+  exports are the outline; the draft, the thing that was paid for, has no
+  download. Fix: `/sermons/:id/draft.md` and a button beside the draft.
+
 ## Validate
 
 Items whose remaining work is purely testing: run, look, hear, measure, or
@@ -96,6 +174,19 @@ defect.
   one run with a real key. Since N-019 the model is `claude-sonnet-5-5`, so
   that run observes the model that ships: confirm a thinking status appears
   before the first prose and the draft saves.
+
+- **N-037** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · value medium
+  *Usability.* The note editor dropped unsaved text without a word. Built
+  2026-11-18: forms marked `data-guard-unsaved` (the note editor and the
+  verse hub's quick note) ask before the page is left with unsaved typing,
+  and Cmd/Ctrl+S saves (`assets/js/app.js`). Checked in Chrome on a scratch
+  server with a synthetic `beforeunload` event: no prompt before typing, a
+  prompt requested after typing, Cmd+S saved and left without one, and an
+  editor re-rendered after a rejected save starts out unsaved. **Still to
+  see:** the browser's real "Leave site?" dialog on an actual navigation
+  (not triggered through the extension, because a modal dialog blocks it),
+  and the same in Safari. Type in a note, click a nav link, expect the
+  prompt.
 
 ## Roadmap
 
@@ -133,6 +224,62 @@ item yet; items move here from Open when the user decides they are "later".
 Closures before this file existed are recorded in the session docs' bodies.
 The entries below are the ones found done while seeding the file.
 
+- **N-035** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · closed 2026-11-18, `2026-1118-1346-deep-look-reliability-performance-usability` —
+  An outline section could not be edited. Heading, point and passage rows
+  now carry a pencil that reopens the page with `?edit=<section id>`, which
+  renders that row as a form; `POST /sermons/:id/sections/:sectionId/edit`
+  saves through the new `study.UpdateSection`, which keeps the section's id,
+  kind and position. A rejected reference comes back with the row still open
+  on what was typed. No JavaScript. Checked in Chrome: fixed "The problm" in
+  place and landed back on the row. That check found that Chrome skips
+  `autofocus` when the URL has a fragment, so the edit link carries none.
+  Tests: `TestUpdateSection`, `TestSermonBuilderSectionEditing`,
+  `TestSectionEditEndToEnd`.
+- **N-033** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · closed 2026-11-18, `2026-1118-1346-deep-look-reliability-performance-usability` —
+  `/js/*` had no validator. `serveJS` now sends an ETag (hash of the bytes)
+  and answers `If-None-Match` with 304. The scratch server's log showed
+  `GET "/js/app.js" -> 304` on every page after the first.
+  `TestScriptsRevalidate` pins it.
+- **N-028** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · closed 2026-11-18, `2026-1118-1346-deep-look-reliability-performance-usability` —
+  `pbstudy download` failed on the first bad response. Each book is now
+  tried up to three times (waits of 1 s and 4 s) on a network error, a 5xx,
+  a 429 or a truncated body; any other 4xx fails at once. Tested against a
+  local stand-in server (`bible/download_test.go`). Not run against
+  getbible.net.
+- **N-026** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · closed 2026-11-18, `2026-1118-1346-deep-look-reliability-performance-usability` —
+  No cross-origin guard on POST. New `web/origin.go`: a middleware refuses
+  any non-GET request whose `Sec-Fetch-Site` is not `same-origin`/`none`, or
+  whose `Origin` host differs from the `Host` header; requests with neither
+  header pass. The draft stream (a GET that spends money) makes the same
+  check. Tests cover the rule as a table and through a real server; in
+  Chrome the app's own forms still save. A cross-site page was not built to
+  attack it for real. Who may reach the port at all is N-027.
+- **N-025** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · closed 2026-11-18, `2026-1118-1346-deep-look-reliability-performance-usability` —
+  Conflict copies were read as records. The failing test showed the older
+  copy winning on the first pass ("Loser"), and a stray copy bringing a
+  compacted note back as a row. Now a `.json` file not named for the id it
+  carries is never imported, never counts as the file's stamp for export,
+  and is named as a problem on every pass until removed (`strayCopy` in
+  `syncer/files.go`). Not merged even when newer, because it outlives the
+  record and would resurrect it after compaction. `serve` now also prints
+  the problem lines at startup, not only their count.
+- **N-024** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · closed 2026-11-18, `2026-1118-1346-deep-look-reliability-performance-usability` —
+  An unclean exit stranded the last edit. SIGHUP now runs the shutdown
+  flush, and `serve` schedules one debounced export after its startup
+  import. Checked on a scratch server: closing the pty it ran under left the
+  note's file written and exit status 0; after `kill -9` inside the debounce
+  the file was missing, and 3.5 s into the next start it was there with no
+  edit made.
+- **N-023** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · closed 2026-11-18, `2026-1118-1346-deep-look-reliability-performance-usability` —
+  A finished AI draft was not exported. `saveDraft` now calls
+  `Syncer.Touch`. `TestSaveDraftSchedulesSyncExport` checks the pending flag
+  through the new exported `Syncer.Pending`.
+- **N-022** · raised `2026-1118-1346-deep-look-reliability-performance-usability` · closed 2026-11-18, `2026-1118-1346-deep-look-reliability-performance-usability` —
+  A draft stream that stopped without a stop reason was saved as finished.
+  `readStream` now returns an error (with the partial text, which is still
+  saved) unless it saw a `stop_reason` or `message_stop`.
+  `TestDraftStreamCutShort` failed before the fix. Not seen against the real
+  API; N-004's live run is the chance.
 - **N-021** · raised `2026-1014-0741-work-next-list-n019-n005-n001` · closed 2026-10-14, `2026-1014-0741-work-next-list-n019-n005-n001` —
   Found by N-001's check: the ScriptTagger config never took effect. The
   tagger replaces `BLB.Tagger` with its defaults on load, so the inline

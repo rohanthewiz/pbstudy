@@ -139,8 +139,39 @@ func cmdServe(conf cfg.Config, st *store.Store) error {
 			// A sync directory that cannot be read is not a reason to refuse to
 			// open the user's own database. Say so and carry on local-only.
 			logger.LogErr(err, "startup sync import failed", "dir", sync.Dir())
-		} else if rep.Imported() > 0 || rep.Problems() > 0 {
-			fmt.Printf("Sync: %s\n", rep.Headline())
+		} else {
+			if rep.Imported() > 0 || rep.Problems() > 0 {
+				fmt.Printf("Sync: %s\n", rep.Headline())
+				// The headline only counts problems. Name them here too: a
+				// file the import refused (a conflict copy, a record from a
+				// newer version) is something to act on, and until now the
+				// only way to learn which file was to press Sync now on the
+				// settings page.
+				for _, e := range rep.Entities {
+					for _, p := range e.Problems {
+						fmt.Printf("  ! %s: %s\n", e.Label(), p)
+					}
+				}
+			}
+
+			// Catch-up export. The automatic export is debounced, and the
+			// shutdown flush only runs when the process is asked to stop, so a
+			// crash, a power cut or a kill -9 inside that window leaves the
+			// last edit in the database with no file for it:
+			//
+			//	edit saved ──(debounce, 2s)──▶ export        normal
+			//	edit saved ──✗ process dies                  row newer than its file
+			//	next start: import only                      ...and it stays that way
+			//	                                             until some other edit
+			//
+			// Scheduling one export here closes that gap on the next start
+			// instead of on the next edit. It goes through the same debounced
+			// path as an edit (Touch), so it runs after the import above has
+			// settled, off the startup path, and it writes only rows that are
+			// newer than their files; on a clean previous exit that is none.
+			// Skipped when the import failed: a folder that cannot be read is
+			// not one to start writing into.
+			sync.Touch()
 		}
 	}
 
@@ -193,7 +224,11 @@ func openSyncer(conf cfg.Config, st *store.Store) (*syncer.Syncer, error) {
 // command takes, instead of being abandoned mid-log by a signal.
 func installShutdownFlush(sync *syncer.Syncer, st *store.Store) {
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	// SIGHUP is what a terminal sends when its window is closed, which is how
+	// a server started by hand in a terminal usually ends. Left unhandled it
+	// kills the process before the flush below, exactly like the SIGTERM case
+	// this function was written for.
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 
 	go func() {
 		sig := <-sigs

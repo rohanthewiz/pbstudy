@@ -52,6 +52,18 @@ func (s *Server) handleSermonShow(ctx rweb.Context) error {
 	}
 
 	streaming := ctx.Request().QueryParam("draft") == "1" && s.cfg.AIEnabled()
+
+	// ?edit=<section id> opens one row of the outline as an edit form, filled
+	// with what the section currently says. An id that matches nothing (a
+	// stale link, a section since removed) simply renders the page with no row
+	// open, which is the right answer to "edit something that is not there".
+	if editID := ctx.Request().QueryParam("edit"); editID != "" {
+		for _, sec := range sermon.Outline {
+			if sec.ID == editID {
+				return s.renderSermonEditing(ctx, sermon, streaming, "", editID, sectionEditText(sec))
+			}
+		}
+	}
 	return s.renderSermon(ctx, sermon, streaming, "")
 }
 
@@ -143,6 +155,83 @@ func (s *Server) handleSectionDelete(ctx rweb.Context) error {
 			"That section had already been removed.")
 	}
 	return ctx.Redirect(http.StatusSeeOther, ui.SermonURL(sermon.ID))
+}
+
+// handleSectionEdit saves an in-place edit of one section's content.
+//
+// The form sends one field, "text", whatever the section's kind: a heading or
+// a point takes it as is, a passage parses it as a reference. The kind itself
+// comes from the stored section, never from the form, so an edit cannot turn
+// one kind of section into another.
+//
+//	section gone            -> the outline as it stands, with a message
+//	text does not validate  -> the same row still open, holding what was typed
+//	saved                   -> 303 back to the row (#sec-<id>)
+func (s *Server) handleSectionEdit(ctx rweb.Context) error {
+	sermon, ok := s.loadSermon(ctx)
+	if !ok {
+		return nil
+	}
+
+	sectionID := ctx.Request().Param("sectionId")
+	text := strings.TrimSpace(ctx.Request().FormValue("text"))
+
+	var current *study.Section
+	for i := range sermon.Outline {
+		if sermon.Outline[i].ID == sectionID {
+			current = &sermon.Outline[i]
+			break
+		}
+	}
+	if current == nil {
+		// Acting on a stale page, as with move and remove: show the outline
+		// as it now is rather than an error page.
+		return s.renderSermon(ctx, sermon, false, "That section had already been removed.")
+	}
+	if !study.SectionEditable(current.Kind) {
+		return s.renderSermon(ctx, sermon, false,
+			"A note section shows the note itself. Edit the note to change it.")
+	}
+
+	// Build the candidate the same way readSectionForm builds a new section,
+	// so adding and editing accept exactly the same input.
+	content := study.Section{Kind: current.Kind}
+	if current.Kind == study.KindPassage {
+		ref, err := bible.ParseRef(text)
+		if err != nil {
+			return s.renderSermonEditing(ctx, sermon, false,
+				"Could not read "+strconv.Quote(text)+
+					" as a passage. Try the form \"John 3:16-18\".", sectionID, text)
+		}
+		content.Ref = ref
+	} else {
+		content.Text = text
+	}
+	if err := study.ValidateSection(content); err != nil {
+		return s.renderSermonEditing(ctx, sermon, false,
+			capitalize(err.Error())+".", sectionID, text)
+	}
+
+	if err := study.UpdateSection(s.store.Study, sermon.ID, sectionID, content); err != nil {
+		// Validation passed above, so what is left is the outline having
+		// changed between the read at the top and the write (another tab),
+		// or the database failing. Either way the outline as stored is the
+		// honest thing to show.
+		logger.LogErr(err, "cannot edit outline section", "sermon", sermon.ID)
+		return s.reloadSermonWithProblem(ctx, sermon.ID,
+			"That section could not be changed; here is the outline as it stands.")
+	}
+	return ctx.Redirect(http.StatusSeeOther,
+		ui.SermonURL(sermon.ID)+"#"+ui.SectionAnchor(sectionID))
+}
+
+// sectionEditText is what a section's edit form starts out holding: the text of
+// a heading or point, or a passage's reference in the form ParseRef reads back.
+func sectionEditText(sec study.Section) string {
+	if sec.Kind == study.KindPassage {
+		return sec.Ref.String()
+	}
+	return sec.Text
 }
 
 // --- exports ---------------------------------------------------------------
@@ -247,6 +336,15 @@ func (s *Server) handleSermonDraftStream(ctx rweb.Context) error {
 		return refuse("Drafting is off; no API key is configured.")
 	}
 
+	// This is the one GET in the app that is not safe to repeat: opening the
+	// stream starts a generation and a bill. The POST guard (guardCrossOrigin)
+	// only looks at unsafe methods, so the same origin check is made here, or
+	// another site's page could open an EventSource against this URL. Our own
+	// panel's EventSource is same-origin and passes.
+	if !requestIsSameOrigin(ctx.Request()) {
+		return refuse("This draft was requested by a page that is not pbstudy, so it was not started.")
+	}
+
 	sermon, err := study.GetSermon(s.store.Study, id)
 	if err != nil {
 		return refuse("That sermon does not exist, or has been deleted.")
@@ -319,6 +417,18 @@ func (s *Server) reloadSermonWithProblem(ctx rweb.Context, id, problem string) e
 // replacing the outline with an error page.
 func (s *Server) renderSermon(ctx rweb.Context, sermon study.Sermon,
 	streaming bool, problem string) error {
+	return s.renderSermonEditing(ctx, sermon, streaming, problem, "", "")
+}
+
+// renderSermonEditing is renderSermon with one outline row open as an edit
+// form. editID names the section and editText is what its input holds; an
+// empty editID is the ordinary page, which is how renderSermon calls this.
+//
+// A separate entry point rather than two more parameters on renderSermon:
+// every other caller has no row to open, and each of them would have had to
+// pass a pair of empty strings to say so.
+func (s *Server) renderSermonEditing(ctx rweb.Context, sermon study.Sermon,
+	streaming bool, problem, editID, editText string) error {
 
 	translation := s.defaultTranslation()
 
@@ -384,6 +494,8 @@ func (s *Server) renderSermon(ctx rweb.Context, sermon study.Sermon,
 			AIEnabled:   s.cfg.AIEnabled(),
 			Streaming:   streaming,
 			Problem:     problem,
+			EditingID:   editID,
+			EditingText: editText,
 		},
 	})
 }

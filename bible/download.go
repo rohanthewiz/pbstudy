@@ -3,6 +3,7 @@ package bible
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,7 +20,10 @@ import (
 // Per-book rather than whole-Bible: 66 requests of ~200KB each instead of one
 // 5MB blob, which keeps memory flat and makes a failed download resumable at
 // book granularity.
-const getBibleBaseURL = "https://api.getbible.net/v2"
+//
+// A variable rather than a constant only so the downloader's tests can point
+// it at a local server; nothing in the program assigns it.
+var getBibleBaseURL = "https://api.getbible.net/v2"
 
 // interRequestDelay paces the downloader. getbible.net is a free service run
 // as a courtesy; 66 requests at 10/sec is polite and still finishes a whole
@@ -28,6 +32,29 @@ const interRequestDelay = 100 * time.Millisecond
 
 // downloadTimeout bounds a single book fetch.
 const downloadTimeout = 30 * time.Second
+
+// fetchBackoff is how long to wait before each retry of one book; its length
+// is the number of retries.
+//
+// A translation is 66 requests, and before this existed one dropped connection
+// anywhere in the run failed the whole download, and the re-run started again
+// at Genesis. Two retries, a second and then four apart, ride out the blips a
+// free API and a home network actually produce (a reset connection, a 502 from
+// a proxy, a rate limit) while a real outage still fails within a few seconds
+// instead of hanging. Short on purpose: Download is idempotent per book, so
+// the fallback for anything longer is simply running the command again.
+//
+// A variable so the tests can retry without sleeping.
+var fetchBackoff = []time.Duration{1 * time.Second, 4 * time.Second}
+
+// permanentError marks a fetch failure that another attempt cannot fix, such
+// as a 404 for a translation the API does not carry. Wrapping rather than a
+// sentinel so the original error, with its serr context, is what gets
+// reported.
+type permanentError struct{ err error }
+
+func (e permanentError) Error() string { return e.err.Error() }
+func (e permanentError) Unwrap() error { return e.err }
 
 // bookDoc mirrors the getbible.net v2 per-book response. Only the fields we
 // consume are declared; the API also returns direction/encoding/language,
@@ -85,7 +112,7 @@ func Download(db *sql.DB, abbrev string, progress Progress) (int, error) {
 			time.Sleep(interRequestDelay)
 		}
 
-		doc, err := fetchBook(client, abbrev, bk.Num)
+		doc, err := fetchBookWithRetry(client, abbrev, bk.Num)
 		if err != nil {
 			return total, serr.Wrap(err, "download failed",
 				"translation", abbrev, "book", bk.Name)
@@ -112,7 +139,44 @@ func Download(db *sql.DB, abbrev string, progress Progress) (int, error) {
 	return total, nil
 }
 
+// fetchBookWithRetry is fetchBook with the retry policy described on
+// fetchBackoff.
+//
+//	attempt 1 ──ok──▶ return
+//	    │ transient failure (network error, 5xx, 429, truncated JSON)
+//	    ▼ wait fetchBackoff[0]
+//	attempt 2 ──ok──▶ return
+//	    │
+//	    ▼ wait fetchBackoff[1]
+//	attempt 3 ──────▶ return its result, whatever it is
+//
+// A permanent failure (any other 4xx) returns at once: asking again for a
+// translation the API does not have only delays the error message. The error
+// returned after the last attempt is that attempt's own, so the log shows what
+// the API was still saying when the downloader gave up.
+func fetchBookWithRetry(client *http.Client, abbrev string, bookNum int) (*bookDoc, error) {
+	var lastErr error
+
+	for attempt := 0; ; attempt++ {
+		doc, err := fetchBook(client, abbrev, bookNum)
+		if err == nil {
+			return doc, nil
+		}
+		lastErr = err
+
+		var permanent permanentError
+		if errors.As(err, &permanent) || attempt >= len(fetchBackoff) {
+			break
+		}
+		time.Sleep(fetchBackoff[attempt])
+	}
+	return nil, lastErr
+}
+
 // fetchBook retrieves and decodes one book document.
+//
+// Every failure is transient unless it is wrapped in permanentError; see
+// fetchBookWithRetry for what that distinction buys.
 func fetchBook(client *http.Client, abbrev string, bookNum int) (*bookDoc, error) {
 	url := fmt.Sprintf("%s/%s/%d.json", getBibleBaseURL, abbrev, bookNum)
 
@@ -126,8 +190,17 @@ func fetchBook(client *http.Client, abbrev string, bookNum int) (*bookDoc, error
 		// Read a little of the body to make the error actionable without
 		// dumping a whole error page into the log.
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
-		return nil, serr.New("unexpected status from getbible.net",
+		statusErr := serr.New("unexpected status from getbible.net",
 			"url", url, "status", resp.Status, "body", string(snippet))
+
+		// A 4xx is the API's considered answer (no such translation, no such
+		// book) and will be the same on the next attempt. 429 is the one
+		// exception: it means "later", which is what a retry is.
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 &&
+			resp.StatusCode != http.StatusTooManyRequests {
+			return nil, permanentError{statusErr}
+		}
+		return nil, statusErr
 	}
 
 	var doc bookDoc

@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -303,6 +304,9 @@ func (c Client) readStream(r io.Reader, emit func(Event) error) (Result, error) 
 		result   Result
 		draft    strings.Builder
 		thinking bool
+		// stopped records that the API said the message was over, either with
+		// a stop reason or with message_stop. See the check after the loop.
+		stopped bool
 	)
 
 	scanner := bufio.NewScanner(r)
@@ -364,7 +368,11 @@ func (c Client) readStream(r io.Reader, emit func(Event) error) (Result, error) 
 		case "message_delta":
 			if ev.Delta.StopReason != "" {
 				result.StopReason = ev.Delta.StopReason
+				stopped = true
 			}
+
+		case "message_stop":
+			stopped = true
 		}
 	}
 
@@ -373,6 +381,29 @@ func (c Client) readStream(r io.Reader, emit func(Event) error) (Result, error) 
 	if err := scanner.Err(); err != nil {
 		return result, userErr(serr.WrapAsSErr(err, "the draft stream ended early"),
 			"The connection to the Anthropic API dropped before the draft finished.")
+	}
+
+	// A body that ended without the API saying it was done is an interrupted
+	// draft, even though the read itself reported no error.
+	//
+	//	... content_block_delta, message_delta{stop_reason}, message_stop, EOF   finished
+	//	... content_block_delta, EOF                                             cut short
+	//
+	// The second shape is what an orderly close in the middle of a stream looks
+	// like (a proxy timing out, a laptop going to sleep): the scanner sees a
+	// plain end of input and scanner.Err() is nil. Without this check the
+	// half-written text below would be returned as a successful draft, and the
+	// page would announce "finished" over a document that stops mid-sentence.
+	//
+	// Either signal counts. The stop reason is what the rest of this function
+	// reads, but message_stop alone is accepted too, so a stream that carries
+	// only the terminal event is not mistaken for a broken one. The text is
+	// still returned with the error: the caller saves what arrived.
+	if !stopped {
+		return result, userErr(
+			serr.NewSErr("the draft stream ended without a stop reason",
+				"chars", strconv.Itoa(len(result.Text))),
+			"The connection to the Anthropic API closed before the draft finished.")
 	}
 
 	result.Truncated = result.StopReason == "max_tokens"

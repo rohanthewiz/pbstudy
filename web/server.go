@@ -3,6 +3,8 @@
 package web
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"io/fs"
 	"net/http"
 	"path"
@@ -86,6 +88,9 @@ func New(conf cfg.Config, st *store.Store, sync *syncer.Syncer) (*Server, error)
 	}
 
 	s.rweb.Use(rweb.RequestInfo)
+	// Before syncOnWrite, so a refused request never reaches a handler and
+	// never schedules an export. See origin.go.
+	s.rweb.Use(s.guardCrossOrigin)
 	s.rweb.Use(s.syncOnWrite)
 
 	if err := s.registerRoutes(); err != nil {
@@ -194,6 +199,7 @@ func (s *Server) registerRoutes() error {
 	s.rweb.Post("/sermons/:id/delete", s.handleSermonDelete)
 
 	s.rweb.Post("/sermons/:id/sections", s.handleSectionAdd)
+	s.rweb.Post("/sermons/:id/sections/:sectionId/edit", s.handleSectionEdit)
 	s.rweb.Post("/sermons/:id/sections/:sectionId/move", s.handleSectionMove)
 	s.rweb.Post("/sermons/:id/sections/:sectionId/delete", s.handleSectionDelete)
 
@@ -242,8 +248,38 @@ func (s *Server) serveJS(fsys fs.FS) rweb.Handler {
 		// binary across upgrades. Revalidation keeps it honest and costs
 		// one conditional request.
 		res.SetHeader("Cache-Control", "no-cache")
+
+		// The validator that makes the sentence above true. "no-cache" tells
+		// the browser to revalidate before reusing its copy, but with nothing
+		// to revalidate against (no ETag, no Last-Modified) it can only fetch
+		// the whole file again, on every page:
+		//
+		//	without ETag:  GET /js/app.js              -> 200 + full body, always
+		//	with ETag:     GET /js/app.js
+		//	               If-None-Match: "<hash>"     -> 304, no body
+		//
+		// The tag is a hash of the bytes served, so a new binary with a
+		// changed script answers 200 on its own; there is no version to bump.
+		// Hashing per request rather than caching the tags: there are two
+		// scripts of a few kilobytes, and a map with a mutex would cost more
+		// to read than this does to compute. The comparison is the same exact
+		// match the stylesheet handler (rweb's stylus middleware) makes.
+		etag := scriptETag(body)
+		res.SetHeader("ETag", etag)
+		if ctx.Request().Header("If-None-Match") == etag {
+			ctx.SetStatus(http.StatusNotModified)
+			return nil
+		}
 		return ctx.Bytes(body)
 	}
+}
+
+// scriptETag is a strong ETag for an embedded script: the first half of its
+// SHA-256, quoted as the header requires. Sixteen bytes is far more than is
+// needed to tell two builds of one file apart.
+func scriptETag(body []byte) string {
+	sum := sha256.Sum256(body)
+	return `"` + hex.EncodeToString(sum[:16]) + `"`
 }
 
 // --- rendering helpers ----------------------------------------------------

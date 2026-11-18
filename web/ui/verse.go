@@ -126,7 +126,11 @@ func (v VerseHub) renderQuickNote(b *element.Builder, ref bible.Ref) (x any) {
 
 	b.DetailsClass("quick-add").R(
 		b.Summary().F("Add a note on %s", esc(ref.String())),
-		b.Form("method", "post", "action", "/notes").R(
+		// data-guard-unsaved: the same leave-with-unsaved-text warning and
+		// Cmd/Ctrl+S binding the full editor has (see app.js). A quick note is
+		// still a note, and the reader's arrow-key and link navigation makes
+		// this page an easy one to leave by accident.
+		b.Form("method", "post", "action", "/notes", "data-guard-unsaved", "1").R(
 			// The anchor and the destination travel as hidden fields so this
 			// form needs no JavaScript and no special-case handler.
 			b.Input("type", "hidden", "name", "refs", "value", esc(ref.String())),

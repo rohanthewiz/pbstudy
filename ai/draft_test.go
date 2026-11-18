@@ -350,3 +350,47 @@ func TestDraftNeedsKey(t *testing.T) {
 		t.Fatal("Draft() ran without an API key")
 	}
 }
+
+// TestDraftStreamCutShort: a response body that ends cleanly but never said
+// why it stopped is an interrupted draft, not a finished one.
+//
+// This is the case a read error does not cover. A proxy or a sleeping laptop
+// can close the connection in an orderly way, which reaches the parser as a
+// plain end of input. Without a check for the stop reason, the half-written
+// draft would be saved and announced as complete. The text that did arrive
+// still has to come back, because it was paid for and the caller saves it.
+func TestDraftStreamCutShort(t *testing.T) {
+	srv, _, _ := sseServer(t,
+		frame("message_start", `{"type":"message_start","message":{"id":"msg_1"}}`),
+		textDelta("The first paragraph arrived, and then the"),
+	)
+
+	result, _, err := collect(t, newTestClient(srv.URL))
+	if err == nil {
+		t.Fatal("Draft() reported success on a stream with no stop reason")
+	}
+	if want := "The first paragraph arrived, and then the"; result.Text != want {
+		t.Errorf("Draft() text = %q, want the partial draft %q", result.Text, want)
+	}
+	if msg := serr.UserMsgFromErr(err); !strings.Contains(msg, "before the draft finished") {
+		t.Errorf("user message = %q, want it to say the draft did not finish", msg)
+	}
+}
+
+// TestDraftStopWithoutReason: message_stop on its own is still a clean end.
+// The stop reason is read for what it says (truncated, refused); its absence
+// beside an explicit message_stop is not evidence of a cut connection.
+func TestDraftStopWithoutReason(t *testing.T) {
+	srv, _, _ := sseServer(t,
+		textDelta("A whole draft."),
+		frame("message_stop", `{"type":"message_stop"}`),
+	)
+
+	result, _, err := collect(t, newTestClient(srv.URL))
+	if err != nil {
+		t.Fatalf("Draft() error on a stream ended by message_stop: %v", err)
+	}
+	if result.Text != "A whole draft." {
+		t.Errorf("Draft() text = %q, want the whole draft", result.Text)
+	}
+}

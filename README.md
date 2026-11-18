@@ -148,6 +148,9 @@ Two more things happen inside a note body:
   does not, so the verses in the reader keep our own links instead of being
   double-linked.
 
+The editor warns before you leave a page with unsaved typing in it, and
+Cmd+S (Ctrl+S) saves from the keyboard.
+
 Tags are created by typing them. There is no tag manager to visit first: put
 `Grace, Covenant` in a note's tag field and both exist, and `/tags/…` becomes
 a topical study: the passages that topic touches — gathered from every note
@@ -174,7 +177,9 @@ A sermon is an ordered outline of four kinds of section:
 | **Point** | something you want to say |
 
 Add sections at the bottom of the builder, reorder them with the arrows, and
-export whenever you like:
+correct one where it stands with its pencil (✎): a heading or a point is
+retyped, a passage takes a new reference. A note section has no pencil, since
+the thing to edit is the note. Export whenever you like:
 
 - `/sermons/:id/export.md` — Markdown, with the scripture inlined verbatim from
   your cache and each note's body and anchors underneath its title.
@@ -225,7 +230,10 @@ re-download in thirty seconds.
 
 Nothing has to be triggered. Edits are exported a couple of seconds after you
 make them, whatever arrived while pbstudy was closed is imported at startup, and
-anything still pending is flushed when the process is asked to stop. **Sync now**
+anything still pending is flushed when the process is asked to stop (Ctrl-C, a
+`kill`, or closing its terminal window). If it stops without being asked (a
+crash, a power cut), the edit that was still waiting is written out by the next
+start. **Sync now**
 and **Back up the study database** on the settings page are there for when you
 want to force the issue, and `pbstudy sync` does the same thing from a script.
 
@@ -258,6 +266,25 @@ That report is the whole user interface for a feature whose success is
 otherwise invisible. A file it cannot use — unreadable JSON, a record in the
 wrong folder, a format written by a newer pbstudy — is named and left alone
 rather than skipped in silence.
+
+The same goes for **conflict copies**. When a note was changed on two machines
+before either saw the other's version, the sync service keeps one side under
+the real name and parks the other beside it (`<id>.sync-conflict-….json` from
+Syncthing, `<id> 2.json` from iCloud). pbstudy reads only the file named for
+the record, and names the parked copy in every report until you remove it:
+
+```
+  0 changes in, 0 files out, 1 problem.
+  Notes              4 unchanged · 1 could not be used
+      ! 03d9….sync-conflict-20261118-120000-ABCDEFG.json is a second copy of
+        03d9….json (a sync conflict?). It was not imported; compare it with
+        the record, then delete it
+```
+
+(The ids are shortened here; the report prints them whole.)
+
+That file is where the losing edit's text still is. Open it, copy what you want
+into the note, and delete it.
 
 ### Compacting
 
@@ -339,6 +366,17 @@ documented:
   `flock`; a second process is refused and told which PID holds the directory.
   The kernel releases the lock on exit, including a crash, so there is no stale
   lock file to clean up.
+
+### Requests from other sites are refused
+
+pbstudy has no login, so nothing stops a web page in another tab from
+submitting a form to `http://localhost:8000`. Every state-changing request
+(and the AI draft stream, which spends money) is therefore checked against the
+browser's own account of where it came from (`Sec-Fetch-Site`, then `Origin`
+against `Host`) and refused with a 403 when that is not pbstudy itself. Scripts
+and `curl`, which send neither header, are unaffected. This is not
+authentication: the server still listens on every interface, so anyone who can
+reach the port directly can use it.
 
 ### Scripture storage
 

@@ -92,6 +92,16 @@ type SermonBuilder struct {
 	// drafting POST redirects here.
 	Streaming bool
 	Problem   string
+	// EditingID names the one section whose row is rendered as an edit form
+	// instead of a label; empty means none. Set from ?edit=<section id>, so
+	// "this row is being edited" is a URL like every other state of this page
+	// and needs no JavaScript.
+	EditingID string
+	// EditingText is what the edit form's input holds: the section's stored
+	// content when the form is first opened, or what the user typed when a
+	// rejected edit is shown again. The handler decides which, so nothing the
+	// user typed is replaced by the stored value on a validation failure.
+	EditingText string
 }
 
 func (v SermonBuilder) Render(b *element.Builder) (x any) {
@@ -146,12 +156,19 @@ func (v SermonBuilder) renderOutline(b *element.Builder) (x any) {
 
 	b.DivClass("card").R(
 		element.ForEach(v.Rows, func(row OutlineRow) {
-			b.DivClass("outline-row").R(
+			// The row carries an id so a URL fragment can land on it: the edit
+			// form's Cancel and the redirect after a save both point at
+			// #sec-<id>, which keeps the browser on the row that was touched
+			// instead of back at the top of a long outline. (The link that
+			// opens the form deliberately does not; see sectionEditLink.)
+			b.DivClass("outline-row", "id", SectionAnchor(row.Section.ID)).R(
 				b.SpanClass("chip chip-kind").T(kindLabel(row.Section.Kind)),
 
 				b.DivClass("outline-label").R(
 					b.Wrap(func() {
 						switch {
+						case v.editing(row):
+							v.renderSectionEdit(b, row)
 						case row.Missing:
 							b.EmClass("empty").T(esc(row.Label))
 						case row.Href != "":
@@ -163,12 +180,84 @@ func (v SermonBuilder) renderOutline(b *element.Builder) (x any) {
 				),
 
 				b.DivClass("outline-actions").R(
+					v.sectionEditLink(b, row),
 					v.sectionButton(b, row.Section.ID, "move", "up", "↑", "Move up"),
 					v.sectionButton(b, row.Section.ID, "move", "down", "↓", "Move down"),
 					v.sectionButton(b, row.Section.ID, "delete", "", "×", "Remove from the outline"),
 				),
 			)
 		}),
+	)
+	return
+}
+
+// SectionAnchor is the element id, and so the URL fragment, of a section's
+// row. Path-escaped like every other place an id reaches markup: section ids
+// are minted here as UUIDs, but an outline can also arrive in a sync file, and
+// the id of a section in one is whatever that file says.
+func SectionAnchor(sectionID string) string { return "sec-" + pathSeg(sectionID) }
+
+// editing reports whether this row is the one shown as an edit form.
+//
+// The kind is checked as well as the id: ?edit= is a query parameter anyone can
+// type, and naming a note section there must leave it as the link it is rather
+// than render a form the server would refuse.
+func (v SermonBuilder) editing(row OutlineRow) bool {
+	return v.EditingID != "" && row.Section.ID == v.EditingID &&
+		study.SectionEditable(row.Section.Kind)
+}
+
+// sectionEditLink is the pencil that opens a row for editing.
+//
+// A link rather than a button, because opening the form changes nothing: it is
+// a GET of this same page with ?edit=<id>, and the server renders that one row
+// as a form. A <details> disclosure per row was the other candidate (it is what
+// the rename and delete controls use), but it adds a line of "Edit" under every
+// row of the outline for a control used on one row at a time.
+//
+// It comes first in the actions so the three buttons every row has stay in the
+// same place whether or not the row can be edited; note rows have no pencil.
+//
+// # Why this link carries no #sec-<id> fragment
+//
+// It would seem to want one, to scroll to the row being opened. But browsers
+// skip autofocus on a page whose URL has a fragment (the fragment is taken as
+// the author's statement of where the page should start), and the form's
+// input relies on autofocus: seen in Chrome, the row opened with the cursor
+// nowhere and the first keystroke went to the page. Without the fragment the
+// input is focused, and focusing an element scrolls it into view, so the row
+// is on screen either way.
+func (v SermonBuilder) sectionEditLink(b *element.Builder, row OutlineRow) (x any) {
+	if !study.SectionEditable(row.Section.Kind) || v.editing(row) {
+		return
+	}
+	href := SermonURL(v.Sermon.ID) + "?edit=" + urlQueryEscape(row.Section.ID)
+	b.A("class", "btn btn-icon", "href", href, "title", "Edit this section").T("✎")
+	return
+}
+
+// renderSectionEdit is the form a row becomes while it is being edited.
+//
+// One text input for all three editable kinds, the same shape as the add form
+// below the outline: a heading or a point is its text, and a passage is typed
+// as a reference and parsed on the server (so "John 3:16-18" and "Jn 3.16-18"
+// both work, and a reference that does not parse comes back here with the
+// reason, still holding what was typed).
+func (v SermonBuilder) renderSectionEdit(b *element.Builder, row OutlineRow) (x any) {
+	action := SermonURL(v.Sermon.ID) + "/sections/" + pathSeg(row.Section.ID) + "/edit"
+
+	placeholder := "What this section says"
+	if row.Section.Kind == study.KindPassage {
+		placeholder = "A reference like John 3:16-18"
+	}
+
+	b.FormClass("outline-edit", "method", "post", "action", action).R(
+		b.Input("type", "text", "name", "text", "value", esc(v.EditingText),
+			"placeholder", placeholder, "aria-label", "Section text",
+			"autocomplete", "off", "required", "required", "autofocus", "autofocus"),
+		b.Button("type", "submit", "class", "btn btn-primary").T("Save"),
+		b.A("class", "btn", "href",
+			SermonURL(v.Sermon.ID)+"#"+SectionAnchor(row.Section.ID)).T("Cancel"),
 	)
 	return
 }

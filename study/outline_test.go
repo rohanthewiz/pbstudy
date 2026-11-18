@@ -318,3 +318,91 @@ func TestExportHTMLIsSelfContained(t *testing.T) {
 		t.Errorf("ExportHTML() did not escape the title as expected:\n%s", got)
 	}
 }
+
+// TestUpdateSection covers the in-place edit: the content changes, and the
+// three things the builder's buttons depend on (id, kind, position) do not.
+func TestUpdateSection(t *testing.T) {
+	db := openSyncTestDB(t)
+
+	sermonID, err := CreateSermon(db, "The love of God")
+	if err != nil {
+		t.Fatalf("CreateSermon() error: %v", err)
+	}
+	noteID, err := CreateNote(db, NoteDraft{Title: "A note"})
+	if err != nil {
+		t.Fatalf("CreateNote() error: %v", err)
+	}
+
+	add := func(sec Section) string {
+		t.Helper()
+		id, err := AppendSection(db, sermonID, sec)
+		if err != nil {
+			t.Fatalf("AppendSection() error: %v", err)
+		}
+		return id
+	}
+	headingID := add(Section{Kind: KindHeading, Text: "The problm"})
+	passageID := add(Section{Kind: KindPassage,
+		Ref: bible.Ref{BookNum: 43, Chapter: 3, VerseStart: 16, VerseEnd: 16}})
+	noteSecID := add(Section{Kind: KindNote, NoteID: noteID})
+	pointID := add(Section{Kind: KindPoint, Text: "God loved first"})
+
+	// A typo fixed, with stray whitespace and an attempt to smuggle in a new
+	// id and kind through the carrier, both of which must be ignored.
+	if err := UpdateSection(db, sermonID, headingID,
+		Section{ID: "forged", Kind: KindPoint, Text: "  The problem  "}); err != nil {
+		t.Fatalf("UpdateSection(heading) error: %v", err)
+	}
+	// A passage widened from one verse to a range.
+	wider := bible.Ref{BookNum: 43, Chapter: 3, VerseStart: 16, VerseEnd: 18}
+	if err := UpdateSection(db, sermonID, passageID, Section{Ref: wider}); err != nil {
+		t.Fatalf("UpdateSection(passage) error: %v", err)
+	}
+
+	got, err := GetSermon(db, sermonID)
+	if err != nil {
+		t.Fatalf("GetSermon() error: %v", err)
+	}
+	want := []Section{
+		{ID: headingID, Kind: KindHeading, Text: "The problem"},
+		{ID: passageID, Kind: KindPassage, Ref: wider},
+		{ID: noteSecID, Kind: KindNote, NoteID: noteID},
+		{ID: pointID, Kind: KindPoint, Text: "God loved first"},
+	}
+	if len(got.Outline) != len(want) {
+		t.Fatalf("outline has %d sections, want %d", len(got.Outline), len(want))
+	}
+	for i := range want {
+		if got.Outline[i] != want[i] {
+			t.Errorf("section %d = %+v, want %+v", i, got.Outline[i], want[i])
+		}
+	}
+
+	// Refusals. None of them may change the outline.
+	refusals := []struct {
+		name      string
+		sectionID string
+		content   Section
+	}{
+		{"an empty heading", headingID, Section{Text: "   "}},
+		{"a passage with no book", passageID, Section{Ref: bible.Ref{}}},
+		{"a note section", noteSecID, Section{Text: "retitled"}},
+		{"a section that is gone", "no-such-section", Section{Text: "x"}},
+	}
+	for _, c := range refusals {
+		if err := UpdateSection(db, sermonID, c.sectionID, c.content); err == nil {
+			t.Errorf("UpdateSection() accepted %s", c.name)
+		}
+	}
+
+	after, err := GetSermon(db, sermonID)
+	if err != nil {
+		t.Fatalf("GetSermon() error: %v", err)
+	}
+	for i := range want {
+		if after.Outline[i] != want[i] {
+			t.Errorf("after the refusals, section %d = %+v, want it unchanged (%+v)",
+				i, after.Outline[i], want[i])
+		}
+	}
+}

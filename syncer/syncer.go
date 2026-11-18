@@ -32,6 +32,10 @@
 //	row newer than file (or no file)  → export: the row overwrites the file
 //	equal                             → nothing happens
 //
+// A record has exactly one file, <id>.json. Any other .json file carrying that
+// id (a sync daemon's conflict copy) is reported and left alone; see strayCopy
+// in files.go for why it is never merged, not even when it is the newer one.
+//
 // Import runs first and export second, over a freshly re-read database, so a
 // row that was just imported exports back only if it actually changed. The
 // consequence worth knowing: two machines editing the same note while both
@@ -157,6 +161,13 @@ func (s *Syncer) pendingExport() bool {
 	defer s.timerMu.Unlock()
 	return s.timer != nil
 }
+
+// Pending is pendingExport for callers outside this package.
+//
+// The web layer has writes that do not pass through its POST middleware (a
+// finished AI draft is saved by a goroutine), and its tests need to see that
+// such a write scheduled an export without waiting out the debounce.
+func (s *Syncer) Pending() bool { return s.pendingExport() }
 
 // Flush cancels any pending debounce and exports synchronously. Called on
 // graceful shutdown, where "the timer would have fired in another second" is

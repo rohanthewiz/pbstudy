@@ -8,6 +8,11 @@ import (
 	"time"
 
 	"github.com/rohanthewiz/rweb"
+
+	"github.com/rohanthewiz/pbstudy/cfg"
+	"github.com/rohanthewiz/pbstudy/store"
+	"github.com/rohanthewiz/pbstudy/study"
+	"github.com/rohanthewiz/pbstudy/syncer"
 )
 
 // TestSendEventIsOneLine is the load-bearing test for the SSE transport.
@@ -115,4 +120,46 @@ func TestJSONString(t *testing.T) {
 	if want := "he said \"no\"\nand meant it"; back != want {
 		t.Errorf("jsonString() round-tripped to %q, want %q", back, want)
 	}
+}
+
+// TestSaveDraftSchedulesSyncExport: a finished draft has to reach the sync
+// folder like any other edit.
+//
+// The draft is saved by a goroutine long after the POST that started it, so
+// the POST middleware that schedules exports never sees the write. This pins
+// that saveDraft schedules the export itself. It checks the pending flag rather
+// than waiting for the file, so it does not have to sit out the debounce.
+func TestSaveDraftSchedulesSyncExport(t *testing.T) {
+	st, err := store.Open(cfg.Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("store.Open() error: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	sync, err := syncer.New(st.Study, t.TempDir())
+	if err != nil {
+		t.Fatalf("syncer.New() error: %v", err)
+	}
+	// Flush stops the timer the test is about to start, so no export fires
+	// after the database has been closed by the cleanup above.
+	t.Cleanup(func() { _, _ = sync.Flush() })
+
+	sermonID, err := study.CreateSermon(st.Study, "The love of God")
+	if err != nil {
+		t.Fatalf("CreateSermon() error: %v", err)
+	}
+
+	s := &Server{store: st, sync: sync}
+	if sync.Pending() {
+		t.Fatal("an export was pending before anything was saved")
+	}
+
+	s.saveDraft(sermonID, "A finished draft.")
+
+	if !sync.Pending() {
+		t.Error("saveDraft() did not schedule a sync export; the draft would stay local")
+	}
+
+	// And a nil syncer (no sync directory configured) must not panic.
+	(&Server{store: st}).saveDraft(sermonID, "Another draft.")
 }

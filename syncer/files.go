@@ -23,6 +23,9 @@ var entityFolders = []string{"notes", "tags", "xrefs", "sermons", "backups"}
 // fileExt is the only extension the importer reads. Anything else in a folder
 // (a daemon's conflict copy, a partially written .tmp, a stray README) is left
 // alone rather than guessed at.
+//
+// The extension alone does not make a file a record, though: a conflict copy
+// usually keeps it. See strayCopy for the second half of the rule.
 const fileExt = ".json"
 
 // tmpExt marks a file being written. Writes are never made in place: a daemon
@@ -79,6 +82,10 @@ func readRecords[T study.Syncable](dir, kind string, rep problemSink) ([]T, erro
 			rep.fail(name + " has no id")
 			continue
 		}
+		if msg := strayCopy(name, rec.SyncID()); msg != "" {
+			rep.fail(msg)
+			continue
+		}
 		if k := rec.SyncKind(); k != "" && k != kind {
 			rep.fail(name + " says it is a " + k + ", not a " + kind)
 			continue
@@ -119,9 +126,63 @@ func readStamps(dir string) (map[string]time.Time, error) {
 		if err := json.Unmarshal(body, &head); err != nil || head.ID == "" {
 			continue
 		}
+		// Only the file named for the id speaks for the record. A conflict
+		// copy carries the same id with some other stamp, and letting it into
+		// this map would make the export compare the row against the wrong
+		// file: a newer stray would hide a canonical file that needs
+		// rewriting. Skipped silently here because the import pass (and
+		// compaction) already name it through readRecords.
+		if strayCopy(name, head.ID) != "" {
+			continue
+		}
 		out[head.ID] = head.UpdatedAt
 	}
 	return out, nil
+}
+
+// strayCopy reports a .json file that is not the file of the record it
+// carries, as the message to show the user; it returns "" for a file that is
+// correctly named.
+//
+// # What this is for
+//
+// Every record lives in exactly one file, <id>.json. A sync daemon breaks that
+// when the same record was changed on two machines before either saw the
+// other's version: it keeps one side under the real name and parks the other
+// beside it, still ending in .json and still carrying the same id.
+//
+//	notes/3f2a….json                                   the record
+//	notes/3f2a….sync-conflict-20261118-120000-ABC.json  Syncthing's parked copy
+//	notes/3f2a… 2.json                                  iCloud's parked copy
+//
+// # Why a stray is never imported, not even when it is newer
+//
+// Treating it as a second vote for the record looks harmless (last writer
+// wins, so let the newest file win) and is not:
+//
+//   - It outlives the record. After the note is deleted and compaction has
+//     removed the row and <id>.json, the stray is the only file left with
+//     that id. Imported, a live stray brings a deleted note back, and a
+//     tombstoned one is re-imported and re-purged on every compaction.
+//   - The daemon already chose which side keeps the name. Whatever is in
+//     <id>.json is what every other machine will converge on, so taking the
+//     stray here would make this machine the odd one out.
+//
+// So the rule is the plain one: a file not named for its id is not a record.
+// It is reported on every pass, which is deliberate. The message is the only
+// sign that an edit lost a conflict, the file is the only place that text
+// still exists, and the report should keep saying so until someone has looked
+// at it and removed the file. Nothing here deletes it.
+//
+// An id that cannot be a file name at all (recordFileName returns "") is not
+// this function's business; writeRecord and removeRecord refuse those.
+func strayCopy(name, id string) string {
+	canonical := recordFileName(id)
+	if canonical == "" || name == canonical {
+		return ""
+	}
+	return name + " is a second copy of " + canonical +
+		" (a sync conflict?). It was not imported; compare it with the record, then delete it"
 }
 
 // recordFiles lists the .json files in a folder, ignoring everything else
